@@ -254,8 +254,9 @@ class AnsibleMechanismDriver(ml2api.MechanismDriver):
             switch_name, switch_port, segmentation_id = \
                 self._link_info_from_port(context.original, network)
 
-            LOG.debug('Ensuring Updated port {switch_port} on network {network}'
-                      '{switch_name} to vlan: {segmentation_id}'.format(
+            LOG.debug('Ensuring Updated port {switch_port} on network '
+                      '{network} {switch_name} to vlan: '
+                      '{segmentation_id}'.format(
                           switch_port=switch_port,
                           network=network,
                           switch_name=switch_name,
@@ -339,15 +340,18 @@ class AnsibleMechanismDriver(ml2api.MechanismDriver):
 
         port = context.current
         network = context.network.current
-        switch_name, switch_port, segmentation_id = \
-            self._link_info_from_port(port, network)
 
+        # Run this before extracting lli, lli_from_port runs the same condition
+        # and will raise before this is checked
         if not self._is_port_supported(port):
-            LOG.debug('Port {} has vnic_type set to %s which is not correct '
+            LOG.debug('Port {} has vnic_type set to {} which is not correct '
                       'to work with networking-ansible driver.'.format(
                           port['id'],
                           port[portbindings.VNIC_TYPE]))
             return
+
+        switch_name, switch_port, segmentation_id = \
+            self._link_info_from_port(port, network)
 
         LOG.debug('Plugging in port {switch_port} on '
                   '{switch_name} to vlan: {segmentation_id}'.format(

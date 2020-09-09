@@ -13,7 +13,6 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-from unittest import mock
 from neutron.objects import network
 from neutron.objects import ports
 from neutron.objects import trunk
@@ -22,6 +21,7 @@ from oslo_config import cfg
 from oslotest import base
 import pbr
 from tooz import coordination
+from unittest import mock
 
 from networking_ansible import config
 from networking_ansible.ml2 import mech_driver
