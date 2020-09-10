@@ -294,10 +294,10 @@ class TestInit(base.NetworkingAnsibleTestCase):
 @mock.patch('networking_ansible.ml2.mech_driver.'
             'AnsibleMechanismDriver.ensure_port')
 class TestUpdatePortPostCommit(base.NetworkingAnsibleTestCase):
-    def test_update_port_postcommit_port_bound(self,
-                                               mock_ensure_port,
-                                               mock_prov_blocks,
-                                               mock_port_bound):
+    def test_update_port_postcommit_port_bound_curr(self,
+                                                    mock_ensure_port,
+                                                    mock_prov_blocks,
+                                                    mock_port_bound):
         mock_port_bound.return_value = True
         self.mock_port_context.original = self.mock_port_context.current
         self.mech.update_port_postcommit(self.mock_port_context)
@@ -306,16 +306,22 @@ class TestUpdatePortPostCommit(base.NetworkingAnsibleTestCase):
             self.testid,
             resources.PORT,
             c.NETWORKING_ENTITY)
-        # TODO(dradez) Check ensure port is called
-        # we can't do this and check provisioning_complete in the same call
-        # mock_ensure_port.assert_called_once_with(
-        #     self.testid,
-        #     self.mock_port_context._plugin_context,
-        #     self.testmac,
-        #     self.testhost,
-        #     self.testport,
-        #     self.testphysnet,
-        #     self.mock_port_context)
+
+    def test_update_port_postcommit_port_bound_orig(self,
+                                                    mock_ensure_port,
+                                                    mock_prov_blocks,
+                                                    mock_port_bound):
+        mock_port_bound.side_effect = [False, True]
+        self.mock_port_context.original = self.mock_port_context.current
+        self.mech.update_port_postcommit(self.mock_port_context)
+        mock_ensure_port.assert_called_once_with(
+            self.testid,
+            self.mock_port_context._plugin_context,
+            self.testmac,
+            self.testhost,
+            self.testport,
+            self.testphysnet,
+            self.mock_port_context)
 
     def test_update_port_postcommit_port_not_bound(self,
                                                    mock_ensure_port,
