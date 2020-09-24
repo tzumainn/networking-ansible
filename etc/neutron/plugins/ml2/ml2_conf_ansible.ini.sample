@@ -13,13 +13,14 @@ coordination_uri = etcd://127.0.0.1:2379
 #
 # - Each section represents a host.
 # - the 'ansible:' tag will be stripped out and the rest of the section name
-#   is the name of the host.
+#   is the name of the host. This is an arbitrary value used only by
+#   net-ansible internally for mapping openstack ports to switches.
 # - The variables in each section will be passed directly to the inventory file
 #   ansible will use. The variables you can use here are defined by ansible.
 #   If you uses an ansible host variable that is not represented here but
 #   is supported by the installed version of ansible then the variable should
 #   work as defined by ansible
-#
+# - Non-ansible variables used only by net-ansible
 #   * manage_vlans :: Default: True
 #     Defines whether to create and delete vlans on the switch.
 #
