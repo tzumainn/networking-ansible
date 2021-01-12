@@ -198,11 +198,9 @@ class AnsibleMechanismDriver(ml2api.MechanismDriver):
                             db, segmentation_id=segmentation_id)
 
                         for segment in segments:
-                            if (
-                                segment.segmentation_id == segmentation_id and
-                                segment.physical_network == physnet and
-                                segment.network_type == 'vlan'
-                                ):
+                            if segment.segmentation_id == segmentation_id and \
+                               segment.physical_network == physnet and \
+                               segment.network_type == 'vlan':
                                 LOG.debug('Not deleting segment {} from {}'
                                           'because it was recreated'.format(
                                               segmentation_id, physnet))
@@ -591,10 +589,8 @@ class AnsibleMechanismDriver(ml2api.MechanismDriver):
                     net = Network.get_object(db, id=port.network_id)
                     if net:
                         for seg in net.segments:
-                            if (
-                               seg.physical_network == physnet and
-                               seg.network_type == 'vlan'
-                               ):
+                            if seg.physical_network == physnet and \
+                               seg.network_type == 'vlan':
                                 return True
         return False
 
