@@ -17,6 +17,7 @@ from neutron.objects import network
 from neutron.objects import ports
 from neutron.objects import trunk
 from neutron.plugins.ml2 import driver_context
+from neutron_lib.api.definitions import provider_net
 from oslo_config import cfg
 from oslotest import base
 import pbr
@@ -107,9 +108,9 @@ class NetworkingAnsibleTestCase(BaseTestCase):
             driver_context.NetworkContext).return_value
         self.mock_net_context.current = {
             'id': self.testsegid,
-            'provider:network_type': 'vlan',
-            'provider:segmentation_id': self.testsegid,
-            'provider:physical_network': self.testphysnet,
+            provider_net.NETWORK_TYPE: 'vlan',
+            provider_net.SEGMENTATION_ID: self.testsegid,
+            provider_net.PHYSICAL_NETWORK: self.testphysnet,
         }
         self.mock_net_context._plugin_context = 'foo'
 
@@ -169,9 +170,9 @@ class NetworkingAnsibleTestCase(BaseTestCase):
         self.mock_port_context.network.current = {
             'id': self.testid,
             # TODO(radez) should an int be use here or str ok?
-            'provider:network_type': 'vlan',
-            'provider:segmentation_id': self.testsegid,
-            'provider:physical_network': self.testphysnet
+            provider_net.NETWORK_TYPE: 'vlan',
+            provider_net.SEGMENTATION_ID: self.testsegid,
+            provider_net.PHYSICAL_NETWORK: self.testphysnet
         }
         self.mock_port_context.segments_to_bind = [
             self.mock_port_context.network.current

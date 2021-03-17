@@ -23,6 +23,7 @@ from neutron.objects.ports import Port
 from neutron.objects.trunk import Trunk
 from neutron.plugins.ml2.common import exceptions as ml2_exc
 from neutron_lib.api.definitions import portbindings
+from neutron_lib.api.definitions import provider_net
 from neutron_lib.callbacks import resources
 from neutron_lib.plugins.ml2 import api as ml2api
 from oslo_config import cfg
@@ -107,8 +108,8 @@ class AnsibleMechanismDriver(ml2api.MechanismDriver):
 
                 network = context.current
                 network_id = network['id']
-                provider_type = network['provider:network_type']
-                segmentation_id = network['provider:segmentation_id']
+                provider_type = network[provider_net.NETWORK_TYPE]
+                segmentation_id = network[provider_net.SEGMENTATION_ID]
 
                 lock = self.coordinator.get_lock(host_name)
                 with lock:
@@ -178,9 +179,9 @@ class AnsibleMechanismDriver(ml2api.MechanismDriver):
             host = self.ml2config.inventory[host_name]
 
             network = context.current
-            provider_type = network['provider:network_type']
-            segmentation_id = network['provider:segmentation_id']
-            physnet = network['provider:physical_network']
+            provider_type = network[provider_net.NETWORK_TYPE]
+            segmentation_id = network[provider_net.SEGMENTATION_ID]
+            physnet = network[provider_net.PHYSICAL_NETWORK]
 
             if provider_type == 'vlan' and segmentation_id:
                 if host.get('manage_vlans', True):
@@ -262,7 +263,7 @@ class AnsibleMechanismDriver(ml2api.MechanismDriver):
 
             self.ensure_port(port['id'], context._plugin_context,
                              port['mac_address'], switch_name, switch_port,
-                             network[c.PHYSNET], context)
+                             network[provider_net.PHYSICAL_NETWORK], context)
 
     def delete_port_postcommit(self, context):
         """Delete a port.
@@ -292,7 +293,7 @@ class AnsibleMechanismDriver(ml2api.MechanismDriver):
 
             self.ensure_port(port['id'], context._plugin_context,
                              port['mac_address'], switch_name, switch_port,
-                             network[c.PHYSNET], context)
+                             network[provider_net.PHYSICAL_NETWORK], context)
 
     def bind_port(self, context):
         """Attempt to bind a port.
@@ -363,7 +364,7 @@ class AnsibleMechanismDriver(ml2api.MechanismDriver):
 
         self.ensure_port(port['id'], context._plugin_context,
                          port['mac_address'], switch_name, switch_port,
-                         network[c.PHYSNET], context)
+                         network[provider_net.PHYSICAL_NETWORK], context)
 
     def _link_info_from_port(self, port, network=None):
         network = network or {}
@@ -383,7 +384,7 @@ class AnsibleMechanismDriver(ml2api.MechanismDriver):
         # also provided in the ML2 conf for ansible-networking
         if not switch_name and switch_mac in self.ml2config.mac_map:
             switch_name = self.ml2config.mac_map[switch_mac]
-        segmentation_id = network.get('provider:segmentation_id', '')
+        segmentation_id = network.get(provider_net.SEGMENTATION_ID, '')
         return switch_name, switch_port, segmentation_id
 
     def ensure_subports(self, port_id, db):

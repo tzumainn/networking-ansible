@@ -156,14 +156,14 @@ class TestCreateNetworkPostCommit(base.NetworkingAnsibleTestCase):
     def test_create_network_postcommit_not_vlan(self,
                                                 mock_create_network,
                                                 mock_get_network):
-        self.mock_net_context.current['provider:network_type'] = 'not-vlan'
+        self.mock_net_context.current[provider_net.NETWORK_TYPE] = 'not-vlan'
         self.mech.create_network_postcommit(self.mock_net_context)
         mock_create_network.assert_not_called()
 
     def test_create_network_postcommit_not_segmentation_id(self,
                                                            mock_create_network,
                                                            mock_get_network):
-        self.mock_net_context.current['provider:segmentation_id'] = ''
+        self.mock_net_context.current[provider_net.SEGMENTATION_ID] = ''
         self.mech.create_network_postcommit(self.mock_net_context)
         mock_create_network.assert_not_called()
 
@@ -177,7 +177,7 @@ class TestCreateNetworkPostCommit(base.NetworkingAnsibleTestCase):
     def test_create_network_postcommit_segment_was_deleted(self,
                                                            mock_create_network,
                                                            mock_get_network):
-        self.mock_net_context.current['provider:segmentation_id'] = '73'
+        self.mock_net_context.current[provider_net.SEGMENTATION_ID] = '73'
         mock_get_network.return_value = self.mock_net_obj
         self.mech.create_network_postcommit(self.mock_net_context)
         mock_create_network.assert_not_called()
@@ -217,7 +217,7 @@ class TestDeleteNetworkPostCommit(base.NetworkingAnsibleTestCase):
                                                 mock_delete_network,
                                                 mock_get_segment):
         mock_get_segment.return_value = []
-        self.mock_net_context.current['provider:network_type'] = 'not-vlan'
+        self.mock_net_context.current[provider_net.NETWORK_TYPE] = 'not-vlan'
         self.mech.delete_network_postcommit(self.mock_net_context)
         mock_delete_network.assert_not_called()
 
@@ -225,7 +225,7 @@ class TestDeleteNetworkPostCommit(base.NetworkingAnsibleTestCase):
                                                            mock_delete_network,
                                                            mock_get_segment):
         mock_get_segment.return_value = []
-        self.mock_net_context.current['provider:segmentation_id'] = ''
+        self.mock_net_context.current[provider_net.SEGMENTATION_ID] = ''
         self.mech.delete_network_postcommit(self.mock_net_context)
         mock_delete_network.assert_not_called()
 
