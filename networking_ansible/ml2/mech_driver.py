@@ -261,8 +261,8 @@ class AnsibleMechanismDriver(ml2api.MechanismDriver):
                           switch_name=switch_name,
                           segmentation_id=segmentation_id))
 
-            self.ensure_port(port['id'], context._plugin_context,
-                             port['mac_address'], switch_name, switch_port,
+            self.ensure_port(port, context._plugin_context,
+                             switch_name, switch_port,
                              network[provider_net.PHYSICAL_NETWORK], context)
 
     def delete_port_postcommit(self, context):
@@ -291,8 +291,8 @@ class AnsibleMechanismDriver(ml2api.MechanismDriver):
                           switch_name=switch_name,
                           segmentation_id=segmentation_id))
 
-            self.ensure_port(port['id'], context._plugin_context,
-                             port['mac_address'], switch_name, switch_port,
+            self.ensure_port(port, context._plugin_context,
+                             switch_name, switch_port,
                              network[provider_net.PHYSICAL_NETWORK], context)
 
     def bind_port(self, context):
@@ -362,8 +362,8 @@ class AnsibleMechanismDriver(ml2api.MechanismDriver):
             context._plugin_context, port['id'], resources.PORT,
             c.NETWORKING_ENTITY)
 
-        self.ensure_port(port['id'], context._plugin_context,
-                         port['mac_address'], switch_name, switch_port,
+        self.ensure_port(port, context._plugin_context,
+                         switch_name, switch_port,
                          network[provider_net.PHYSICAL_NETWORK], context)
 
     def _link_info_from_port(self, port, network=None):
@@ -418,15 +418,15 @@ class AnsibleMechanismDriver(ml2api.MechanismDriver):
                           'acquisition'.format(port_id))
                 return
 
-    def ensure_port(self, port_id, db, mac, switch_name,
+    def ensure_port(self, port, db, switch_name,
                     switch_port, physnet, port_context):
         LOG.debug('Ensuring state of port {port_id} '
                   'with mac addr {mac} '
                   'on switch {switch_name} '
                   'on port {switch_port} '
                   'on physnet {physnet} '
-                  'using db context {db}'.format(port_id=port_id,
-                                                 mac=mac,
+                  'using db context {db}'.format(port_id=port['id'],
+                                                 mac=port['mac_address'],
                                                  switch_name=switch_name,
                                                  switch_port=switch_port,
                                                  physnet=physnet,
@@ -438,14 +438,14 @@ class AnsibleMechanismDriver(ml2api.MechanismDriver):
                                                'runner inventory while '
                                                'configuring port id '
                                                '{}'.format(switch_name,
-                                                           port_id))
+                                                           port['id']))
 
         # get dlock for the switch we're working with
         lock = self.coordinator.get_lock(switch_name)
         with lock:
 
             # port = get the port from the db
-            updated_port = Port.get_object(db, id=port_id)
+            updated_port = Port.get_object(db, id=port['id'])
 
             # if it exists and is bound to a port
             if self._get_port_lli(updated_port):
@@ -460,10 +460,11 @@ class AnsibleMechanismDriver(ml2api.MechanismDriver):
             else:
                 # if the port doesn't exist, we have a mac+switch, we can look
                 # up whether the port needs to be deleted on the switch
-                if self._is_deleted_port_in_use(physnet, mac, db):
+                if self._is_deleted_port_in_use(physnet,
+                                                port['mac_address'], db):
                     LOG.debug('Port {port_id} was deleted, but its switch port'
                               ' {sp} is now in use by another port, discarding'
-                              ' request to delete'.format(port_id=port_id,
+                              ' request to delete'.format(port_id=port['id'],
                                                           sp=switch_port))
                     return
                 else:

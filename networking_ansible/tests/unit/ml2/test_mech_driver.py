@@ -85,9 +85,8 @@ class TestBindPort(base.NetworkingAnsibleTestCase):
         mock_port_supported.return_value = True
         self.mech.bind_port(self.mock_port_context)
         mock_ensure_port.assert_called_once_with(
-            self.testid,
+            self.mock_port_context.current,
             self.mock_port_context._plugin_context,
-            self.testmac,
             self.testhost,
             self.testport,
             self.testphysnet,
@@ -251,9 +250,8 @@ class TestDeletePortPostCommit(base.NetworkingAnsibleTestCase):
                                           mock_ensure_port):
         self.mech.delete_port_postcommit(self.mock_port_context)
         mock_ensure_port.assert_called_once_with(
-            self.testid,
+            self.mock_port_context.current,
             self.mock_port_context._plugin_context,
-            self.testmac,
             self.testhost,
             self.testport,
             self.testphysnet,
@@ -319,9 +317,8 @@ class TestUpdatePortPostCommit(base.NetworkingAnsibleTestCase):
         self.mock_port_context.original = self.mock_port_context.current
         self.mech.update_port_postcommit(self.mock_port_context)
         mock_ensure_port.assert_called_once_with(
-            self.testid,
+            self.mock_port_context.current,
             self.mock_port_context._plugin_context,
-            self.testmac,
             self.testhost,
             self.testport,
             self.testphysnet,
@@ -460,9 +457,8 @@ class TestEnsurePort(base.NetworkingAnsibleTestCase):
         mock_has_host.return_value = False
         self.assertRaises(ml2_exc.MechanismDriverError,
                           self.mech.ensure_port,
-                          self.testid,
+                          self.mock_port_context.current,
                           self.mock_port_context._plugin_context,
-                          self.testmac,
                           self.testhost,
                           self.testport,
                           self.testphysnet,
@@ -481,9 +477,8 @@ class TestEnsurePort(base.NetworkingAnsibleTestCase):
         mock_port_get_object.return_value = None
         mock_is_deleted.return_value = False
         self.mech.ensure_port(
-            self.testid,
+            self.mock_port_context.current,
             self.mock_port_context._plugin_context,
-            self.testmac,
             self.testhost,
             self.testport,
             self.testphysnet,
@@ -503,9 +498,8 @@ class TestEnsurePort(base.NetworkingAnsibleTestCase):
         mock_port_get_object.return_value = None
         mock_is_deleted.return_value = True
         self.mech.ensure_port(
-            self.testid,
+            self.mock_port_context.current,
             self.mock_port_context._plugin_context,
-            self.testmac,
             self.testhost,
             self.testport,
             self.testphysnet,
@@ -521,9 +515,8 @@ class TestEnsurePort(base.NetworkingAnsibleTestCase):
                                         mock_get_lock):
         mock_port_get_object.return_value = self.mock_port_obj
         self.mech.ensure_port(
-            self.testid,
+            self.mock_port_context.current,
             self.mock_port_context._plugin_context,
-            self.testmac,
             self.testhost,
             self.testport,
             self.testphysnet,
@@ -542,9 +535,8 @@ class TestEnsurePort(base.NetworkingAnsibleTestCase):
         mock_port_get_object.return_value = self.mock_port_obj
         mock_set_state.return_value = True
         self.mech.ensure_port(
-            self.testid,
+            self.mock_port_context.current,
             self.mock_port_context._plugin_context,
-            self.testmac,
             self.testhost,
             self.testport,
             self.testphysnet,
@@ -564,9 +556,8 @@ class TestEnsurePort(base.NetworkingAnsibleTestCase):
         mock_port_get_object.return_value = self.mock_port_obj
         mock_set_state.return_value = False
         self.mech.ensure_port(
-            self.testid,
+            self.mock_port_context.current,
             self.mock_port_context._plugin_context,
-            self.testmac,
             self.testhost,
             self.testport,
             self.testphysnet,
