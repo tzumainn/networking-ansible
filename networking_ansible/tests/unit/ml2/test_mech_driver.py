@@ -267,26 +267,35 @@ class TestDeletePortPostCommit(base.NetworkingAnsibleTestCase):
         mock_ensure_port.assert_not_called()
 
 
+@mock.patch(c.COORDINATION)
 @mock.patch('networking_ansible.config.Config')
 class TestInit(base.NetworkingAnsibleTestCase):
-    def test_intialize(self, m_config):
-        with mock.patch(c.COORDINATION) as m_coord:
-            m_coord.get_coordinator = lambda *args: mock.create_autospec(
-                coordination.CoordinationDriver).return_value
-            m_config.return_value = base.MockConfig()
-            self.mech.initialize()
-            m_config.assert_called_once_with()
+    def test_intialize(self, m_config, m_coord):
+        m_coord.get_coordinator = lambda *args: mock.create_autospec(
+            coordination.CoordinationDriver).return_value
+        m_config.return_value = base.MockConfig()
+        self.mech.initialize()
+        m_config.assert_called_once_with()
 
-    def test_intialize_w_extra_params(self, m_config):
-        with mock.patch(c.COORDINATION) as m_coord:
-            m_coord.get_coordinator = lambda *args: mock.create_autospec(
-                coordination.CoordinationDriver).return_value
-            m_config.return_value = base.MockConfig(self.testhost,
-                                                    self.testmac)
-            m_config.return_value.add_extra_params()
-            self.mech.initialize()
-            assert self.mech.extra_params == {self.testhost:
-                                              {'stp_edge': True}}
+    def test_intialize_w_extra_params(self, m_config, m_coord):
+        m_coord.get_coordinator = lambda *args: mock.create_autospec(
+            coordination.CoordinationDriver).return_value
+        m_config.return_value = base.MockConfig(self.testhost,
+                                                self.testmac)
+        m_config.return_value.add_extra_params()
+        self.mech.initialize()
+        self.assertEqual(self.mech.kwargs,
+                         {self.testhost: {'stp_edge': True}})
+
+    def test_intialize_w_custom_params(self, m_config, m_coord):
+        m_coord.get_coordinator = lambda *args: mock.create_autospec(
+            coordination.CoordinationDriver).return_value
+        m_config.return_value = base.MockConfig(self.testhost,
+                                                self.testmac)
+        m_config.return_value.add_custom_params()
+        self.mech.initialize()
+        self.assertEqual(self.mech.kwargs,
+                         {self.testhost: {'custom': 'param'}})
 
 
 @mock.patch('networking_ansible.ml2.mech_driver.'

@@ -17,6 +17,7 @@ COORDINATION = 'networking_ansible.ml2.mech_driver.coordination'
 DRIVER_TAG = 'ansible:'
 LLI = 'local_link_information'
 NETWORKING_ENTITY = 'ANSIBLENETWORKING'
+CUSTOM_PARAM_PREFIX = 'cp_'
 
 # values that will be cast to Bool in the conf process
 BOOLEANS = ['manage_vlans', 'stp_edge']

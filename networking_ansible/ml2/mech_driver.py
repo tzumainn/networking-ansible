@@ -62,15 +62,17 @@ class AnsibleMechanismDriver(ml2api.MechanismDriver):
         _inv.deserialize({'all': {'hosts': self.ml2config.inventory}})
         self.net_runr = net_runr_api.NetworkRunner(_inv)
 
-        # build the extra_params dict.
-        # this holds extra config params per host passed to network runner
-        self.extra_params = {}
+        # build the custom params and extra params dict.
+        # this holds kwargs per host to pass to network runner
+        self.kwargs = {}
         for host_name in self.ml2config.inventory:
-            self.extra_params[host_name] = {}
-            for i in c.EXTRA_PARAMS:
-                if i in self.ml2config.inventory[host_name]:
-                    self.extra_params[host_name][i] = \
-                        self.ml2config.inventory[host_name].get(i)
+            self.kwargs[host_name] = {}
+            for key, val in self.ml2config.inventory[host_name].items():
+                if key in c.EXTRA_PARAMS or \
+                        key.startswith(c.CUSTOM_PARAM_PREFIX):
+                    if key.startswith(c.CUSTOM_PARAM_PREFIX):
+                        key = key[len(c.CUSTOM_PARAM_PREFIX):]
+                    self.kwargs[host_name][key] = val
 
         self.coordinator = coordination.get_coordinator(
             cfg.CONF.ml2_ansible.coordination_uri,
@@ -139,7 +141,7 @@ class AnsibleMechanismDriver(ml2api.MechanismDriver):
                             self.net_runr.create_vlan(
                                 host_name,
                                 segmentation_id,
-                                **self.extra_params[host_name])
+                                **self.kwargs[host_name])
                             LOG.info('Network {net_id}, segmentation '
                                      '{seg} has been added on '
                                      'ansible host {host}'.format(
@@ -212,7 +214,7 @@ class AnsibleMechanismDriver(ml2api.MechanismDriver):
                             self.net_runr.delete_vlan(
                                 host_name,
                                 segmentation_id,
-                                **self.extra_params[host_name])
+                                **self.kwargs[host_name])
                             LOG.info('Network {net_id} has been deleted on '
                                      'ansible host {host}'.format(
                                          net_id=network['id'],
@@ -511,14 +513,14 @@ class AnsibleMechanismDriver(ml2api.MechanismDriver):
                                               switch_port,
                                               segmentation_id,
                                               trunked_vlans,
-                                              **self.extra_params[switch_name])
+                                              **self.kwargs[switch_name])
 
             else:
                 self.net_runr.conf_access_port(
                     switch_name,
                     switch_port,
                     segmentation_id,
-                    **self.extra_params[switch_name])
+                    **self.kwargs[switch_name])
 
             LOG.info('Port {neutron_port} has been plugged into '
                      'switch port {sp} on device {switch_name}'.format(
@@ -545,7 +547,7 @@ class AnsibleMechanismDriver(ml2api.MechanismDriver):
         try:
             self.net_runr.delete_port(switch_name,
                                       switch_port,
-                                      **self.extra_params[switch_name])
+                                      **self.kwargs[switch_name])
             LOG.info('Unplugged port {switch_port} '
                      'on {switch_name}'.format(switch_port=switch_port,
                                                switch_name=switch_name))

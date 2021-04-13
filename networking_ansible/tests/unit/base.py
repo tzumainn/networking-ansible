@@ -54,6 +54,10 @@ class MockConfig(object):
         for i in self.inventory:
             self.inventory[i]['stp_edge'] = True
 
+    def add_custom_params(self):
+        for i in self.inventory:
+            self.inventory[i]['cp_custom'] = 'param'
+
 
 class BaseTestCase(base.BaseTestCase):
     test_config_files = []
