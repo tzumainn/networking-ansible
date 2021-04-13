@@ -4,7 +4,8 @@
 
 ansible-runner>=1.0.5 # Apache-2.0
 debtcollector>=1.21.0
-network-runner>=0.2.2 # Apache-2.0
+#git+https://github.com/ansible-network/network-runner.git#egg=network-runner
+network-runner>=0.3.0 # Apache-2.0
 neutron>=16.0.0.0 # Apache-2.0
 neutron-lib>=2.4.0 # Apache-2.0
 pbr>=2.0 # Apache-2.0

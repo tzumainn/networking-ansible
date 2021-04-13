@@ -18,6 +18,7 @@ import tempfile
 
 import fixtures
 from network_runner import api
+from network_runner.types import validators
 from networking_ansible import exceptions as netans_ml2exc
 from neutron.common import test_lib
 from neutron.objects import network
@@ -53,10 +54,12 @@ class TestLibTestConfigFixture(fixtures.Fixture):
 class NetAnsibleML2Base(test_plugin.Ml2PluginV2TestCase):
     def setUp(self):
         base.patch_neutron_quotas()
-        with mock.patch(c.COORDINATION) as m_coord:
-            m_coord.get_coordinator = lambda *args: mock.create_autospec(
-                coordination.CoordinationDriver).return_value
-            super(NetAnsibleML2Base, self).setUp()
+        with mock.patch.object(validators.ChoiceValidator, '__call__',
+                               return_value=None):
+            with mock.patch(c.COORDINATION) as m_coord:
+                m_coord.get_coordinator = lambda *args: mock.create_autospec(
+                    coordination.CoordinationDriver).return_value
+                super(NetAnsibleML2Base, self).setUp()
 
 
 @mock.patch('networking_ansible.ml2.mech_driver.'
