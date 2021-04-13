@@ -14,12 +14,15 @@
 #    under the License.
 
 import contextlib
-import tempfile
-
 import fixtures
+import tempfile
+import webob.exc
+
+from tooz import coordination
+from unittest import mock
+
 from network_runner import api
 from network_runner.types import validators
-from networking_ansible import exceptions as netans_ml2exc
 from neutron.common import test_lib
 from neutron.objects import network
 from neutron.objects import ports
@@ -30,12 +33,10 @@ from neutron.tests.unit.plugins.ml2 import test_plugin
 from neutron_lib.api.definitions import portbindings
 from neutron_lib.api.definitions import provider_net
 from neutron_lib.callbacks import resources
-from unittest import mock
-import webob.exc
 
 from networking_ansible import constants as c
+from networking_ansible import exceptions as netans_ml2exc
 from networking_ansible.tests.unit import base
-from tooz import coordination
 
 
 class TestLibTestConfigFixture(fixtures.Fixture):
@@ -89,17 +90,23 @@ class TestBindPort(base.NetworkingAnsibleTestCase):
             self.testhost,
             self.testport,
             self.testphysnet,
-            self.mock_port_context)
+            self.mock_port_context,
+            self.testsegid)
 
 
 class TestIsPortSupported(base.NetworkingAnsibleTestCase):
-    def test_is_port_supported(self):
+    def test_is_port_supported_baremetal(self):
         self.assertTrue(
-            self.mech._is_port_supported(self.mock_port))
+            self.mech._is_port_supported(self.mock_port_bm))
 
-    def test_is_port_supported_not_baremetal(self):
+    def test_is_port_supported_normal(self):
+        self.assertTrue(
+            self.mech._is_port_supported(self.mock_port_vm))
+
+    def test_is_port_supported_invalid(self):
+        self.mock_port_bm.dict[c.DEVICE_OWNER] = 'invalid'
         self.assertFalse(
-            self.mech._is_port_supported(self.mock_port2))
+            self.mech._is_port_supported(self.mock_port_bm))
 
 
 @mock.patch('networking_ansible.ml2.mech_driver.'
@@ -108,17 +115,22 @@ class TestIsPortBound(base.NetworkingAnsibleTestCase):
     def test_is_port_bound(self, mock_port_supported):
         mock_port_supported.return_value = True
         self.assertTrue(
-            self.mech._is_port_bound(self.mock_port))
+            self.mech._is_port_bound(self.mock_port_bm))
+
+    def test_is_port_bound_normal(self, mock_port_supported):
+        mock_port_supported.return_value = True
+        self.assertTrue(
+            self.mech._is_port_bound(self.mock_port_vm))
 
     def test_is_port_bound_not_other(self, mock_port_supported):
-        self.mock_port.dict['binding:vif_type'] = 'not-other'
+        self.mock_port_bm.dict['binding:vif_type'] = 'not-other'
         self.assertFalse(
-            self.mech._is_port_bound(self.mock_port))
+            self.mech._is_port_bound(self.mock_port_bm))
 
     def test_is_port_bound_port_not_supported(self, mock_port_supported):
         mock_port_supported.return_value = False
         self.assertFalse(
-            self.mech._is_port_bound(self.mock_port))
+            self.mech._is_port_bound(self.mock_port_bm))
 
 
 @mock.patch.object(network.Network, 'get_object')
@@ -254,7 +266,9 @@ class TestDeletePortPostCommit(base.NetworkingAnsibleTestCase):
             self.testhost,
             self.testport,
             self.testphysnet,
-            self.mock_port_context)
+            self.mock_port_context,
+            self.testsegid,
+            delete=True)
 
     @mock.patch('networking_ansible.ml2.mech_driver.'
                 'AnsibleMechanismDriver._is_port_bound')
@@ -330,7 +344,8 @@ class TestUpdatePortPostCommit(base.NetworkingAnsibleTestCase):
             self.testhost,
             self.testport,
             self.testphysnet,
-            self.mock_port_context)
+            self.mock_port_context,
+            self.testsegid)
 
     def test_update_port_postcommit_port_not_bound(self,
                                                    mock_ensure_port,
@@ -340,58 +355,90 @@ class TestUpdatePortPostCommit(base.NetworkingAnsibleTestCase):
         self.mech.update_port_postcommit(self.mock_port_context)
         mock_prov_blocks.provisioning_complete.assert_not_called()
 
+    def test_update_port_postcommit_port_w_normal_port(self,
+                                                       mock_ensure_port,
+                                                       mock_prov_blocks,
+                                                       mock_port_bound):
+        mappings = [(self.testhost, self.testport)]
+        self.m_config.port_mappings = {self.test_hostid: mappings}
+        self.mock_port_context.current = self.mock_port_context.original
+        self.mech.update_port_postcommit(self.mock_port_context)
+        mock_ensure_port.assert_called_once_with(
+            self.mock_port_context.current,
+            self.mock_port_context._plugin_context,
+            self.testhost,
+            self.testport,
+            self.testphysnet,
+            self.mock_port_context,
+            self.testsegid)
+
 
 class TestLinkInfo(base.NetworkingAnsibleTestCase):
-    def test_link_info_from_port_no_net(self):
-        switch_name, switch_port, segmentation_id = \
-            self.mech._link_info_from_port(self.mock_port)
-        self.assertEqual(switch_name, self.testhost)
-        self.assertEqual(switch_port, self.testport)
-        self.assertEqual(segmentation_id, '')
+    def test_switch_meta_from_link_info_obj_no_net(self):
+        mappings, segmentation_id = \
+            self.mech._switch_meta_from_link_info(self.mock_port_bm)
+        for switch_name, switch_port in mappings:
+            self.assertEqual(switch_name, self.testhost)
+            self.assertEqual(switch_port, self.testport)
+            self.assertEqual(segmentation_id, '')
 
-    def test_link_info_from_port_net(self):
-        switch_name, switch_port, segmentation_id = \
-            self.mech._link_info_from_port(self.mock_port,
-                                           self.mock_net_context.current)
-        self.assertEqual(switch_name, self.testhost)
-        self.assertEqual(switch_port, self.testport)
-        self.assertEqual(segmentation_id, self.testsegid)
+    def test_switch_meta_from_link_info_obj_net(self):
+        mappings, segmentation_id = \
+            self.mech._switch_meta_from_link_info(
+                self.mock_port_bm,
+                self.mock_net_context.current)
+        for switch_name, switch_port in mappings:
+            self.assertEqual(switch_name, self.testhost)
+            self.assertEqual(switch_port, self.testport)
+            self.assertEqual(segmentation_id, self.testsegid)
 
-    def test_link_info_from_port_context_no_net(self):
-        switch_name, switch_port, segmentation_id = \
-            self.mech._link_info_from_port(self.mock_port_context.current)
-        self.assertEqual(switch_name, self.testhost)
-        self.assertEqual(switch_port, self.testport)
-        self.assertEqual(segmentation_id, '')
+    def test_switch_meta_from_link_info_context_no_net(self):
+        mappings, segmentation_id = \
+            self.mech._switch_meta_from_link_info(
+                self.mock_port_context.current)
+        for switch_name, switch_port in mappings:
+            self.assertEqual(switch_name, self.testhost)
+            self.assertEqual(switch_port, self.testport)
+            self.assertEqual(segmentation_id, '')
 
-    def test_link_info_from_port_context_net(self):
-        switch_name, switch_port, segmentation_id = \
-            self.mech._link_info_from_port(self.mock_port_context.current,
-                                           self.mock_net_context.current)
-        self.assertEqual(switch_name, self.testhost)
-        self.assertEqual(switch_port, self.testport)
-        self.assertEqual(segmentation_id, self.testsegid)
+    def test_switch_meta_from_link_info_context_net(self):
+        mappings, segmentation_id = \
+            self.mech._switch_meta_from_link_info(
+                self.mock_port_context.current,
+                self.mock_net_context.current)
+        for switch_name, switch_port in mappings:
+            self.assertEqual(switch_name, self.testhost)
+            self.assertEqual(switch_port, self.testport)
+            self.assertEqual(segmentation_id, self.testsegid)
 
-    def test_link_info_from_port_context_no_name(self):
-        self.mock_port_context.current.bindings[0].profile = self.lli_no_info
+    def test_switch_meta_from_link_info_context_no_name(self):
+        self.mock_port_bm.bindings[0].profile = self.lli_no_info
         self.m_config.mac_map = {self.testmac.upper(): self.testhost + '+map'}
-        switch_name, switch_port, segmentation_id = \
-            self.mech._link_info_from_port(self.mock_port_context.current)
-        self.assertEqual(switch_name, self.testhost + '+map')
-        self.assertEqual(switch_port, self.testport)
-        self.assertEqual(segmentation_id, '')
+        mappings, segmentation_id = \
+            self.mech._switch_meta_from_link_info(
+                self.mock_port_bm)
+        for switch_name, switch_port in mappings:
+            self.assertEqual(switch_name, self.testhost + '+map')
+            self.assertEqual(switch_port, self.testport)
+            self.assertEqual(segmentation_id, '')
 
-    def test_link_info_from_port_context_no_lli(self):
-        self.mock_port.bindings[0].profile[c.LLI] = {}
+    def test_switch_meta_from_link_info_context_no_lli(self):
+        self.mock_port_bm.bindings[0].profile[c.LLI] = {}
         self.assertRaises(netans_ml2exc.LocalLinkInfoMissingException,
-                          self.mech._link_info_from_port,
-                          self.mock_port)
+                          self.mech._switch_meta_from_link_info,
+                          self.mock_port_bm)
 
     def test_link_info_from_port_port_not_supported(self):
+        # If this test fails from a missing key in the future
+        # it's generall safe to just throw the key into this dict
+        # it's testing a case when the value passed it not a port
+        # object. So we just port properties into a dict so the
+        # properties are there but it's not a proper port object
         port = {'id': self.testid,
-                portbindings.VNIC_TYPE: 'not-supported'}
+                portbindings.VNIC_TYPE: 'not-supported',
+                c.DEVICE_OWNER: c.BAREMETAL_NONE}
         self.assertRaises(netans_ml2exc.LocalLinkInfoMissingException,
-                          self.mech._link_info_from_port,
+                          self.mech._switch_meta_from_link_info,
                           port)
 
 
@@ -423,7 +470,7 @@ class TestIsDeletedPortInUse(base.NetworkingAnsibleTestCase):
     def test_is_in_use_one_port(self,
                                 mock_net_get_object,
                                 mock_port_get_objects):
-        mock_port_get_objects.return_value = [self.mock_port]
+        mock_port_get_objects.return_value = [self.mock_port_bm]
         mock_net_get_object.return_value = self.mock_net
         self.assertTrue(
             self.mech._is_deleted_port_in_use(self.testphysnet, 2, 3))
@@ -431,7 +478,7 @@ class TestIsDeletedPortInUse(base.NetworkingAnsibleTestCase):
     def test_is_in_use_one_port_virtnet(self,
                                         mock_net_get_object,
                                         mock_port_get_objects):
-        mock_port_get_objects.return_value = [self.mock_port]
+        mock_port_get_objects.return_value = [self.mock_port_bm]
         mock_net_get_object.return_value = self.mock_net
         self.mock_net.segments = [self.mock_netseg3]
         self.assertFalse(
@@ -440,8 +487,8 @@ class TestIsDeletedPortInUse(base.NetworkingAnsibleTestCase):
     def test_is_in_use_two_port_virtnet_and_physnet(self,
                                                     mock_net_get_object,
                                                     mock_port_get_objects):
-        mock_port_get_objects.return_value = [self.mock_port,
-                                              self.mock_port2]
+        mock_port_get_objects.return_value = [self.mock_port_bm,
+                                              self.mock_port_vm]
         self.mock_net.segments = [self.mock_netseg3]
 
         mock_net2 = mock.create_autospec(
@@ -455,7 +502,7 @@ class TestIsDeletedPortInUse(base.NetworkingAnsibleTestCase):
     def test_is_in_use_one_port_no_net(self,
                                        mock_net_get_object,
                                        mock_port_get_objects):
-        mock_port_get_objects.return_value = [self.mock_port]
+        mock_port_get_objects.return_value = [self.mock_port_bm]
         mock_net_get_object.return_value = None
         self.assertFalse(
             self.mech._is_deleted_port_in_use(self.testphysnet, 2, 3))
@@ -463,8 +510,8 @@ class TestIsDeletedPortInUse(base.NetworkingAnsibleTestCase):
     def test_is_in_use_one_port_no_binding(self,
                                            mock_net_get_object,
                                            mock_port_get_objects):
-        self.mock_port.bindings.pop()
-        mock_port_get_objects.return_value = [self.mock_port]
+        self.mock_port_bm.bindings.pop()
+        mock_port_get_objects.return_value = [self.mock_port_bm]
         mock_net_get_object.return_value = self.mock_net
         self.assertFalse(
             self.mech._is_deleted_port_in_use(self.testphysnet, 2, 3))
@@ -472,8 +519,8 @@ class TestIsDeletedPortInUse(base.NetworkingAnsibleTestCase):
     def test_is_in_use_one_port_no_lli(self,
                                        mock_net_get_object,
                                        mock_port_get_objects):
-        self.mock_port.bindings[0].profile = {}
-        mock_port_get_objects.return_value = [self.mock_port]
+        self.mock_port_bm.bindings[0].profile = {}
+        mock_port_get_objects.return_value = [self.mock_port_bm]
         mock_net_get_object.return_value = self.mock_net
         self.assertFalse(
             self.mech._is_deleted_port_in_use(self.testphysnet, 2, 3))
@@ -495,7 +542,8 @@ class TestEnsurePort(base.NetworkingAnsibleTestCase):
                           self.testhost,
                           self.testport,
                           self.testphysnet,
-                          self.mock_port_context)
+                          self.mock_port_context,
+                          self.testsegid)
 
     @mock.patch('networking_ansible.ml2.mech_driver.'
                 'AnsibleMechanismDriver._delete_switch_port')
@@ -515,7 +563,8 @@ class TestEnsurePort(base.NetworkingAnsibleTestCase):
             self.testhost,
             self.testport,
             self.testphysnet,
-            self.mock_port_context)
+            self.mock_port_context,
+            self.testsegid)
         mock_delete_port.assert_called_once_with(self.testhost, self.testport)
 
     @mock.patch('networking_ansible.ml2.mech_driver.'
@@ -536,7 +585,8 @@ class TestEnsurePort(base.NetworkingAnsibleTestCase):
             self.testhost,
             self.testport,
             self.testphysnet,
-            self.mock_port_context)
+            self.mock_port_context,
+            self.testsegid)
         mock_delete_port.assert_not_called()
 
     @mock.patch('networking_ansible.ml2.mech_driver.'
@@ -546,17 +596,20 @@ class TestEnsurePort(base.NetworkingAnsibleTestCase):
                                         mock_has_host,
                                         mock_port_get_object,
                                         mock_get_lock):
-        mock_port_get_object.return_value = self.mock_port
+        mock_port_get_object.return_value = self.mock_port_bm
         self.mech.ensure_port(
             self.mock_port_context.current,
             self.mock_port_context._plugin_context,
             self.testhost,
             self.testport,
             self.testphysnet,
-            self.mock_port_context)
+            self.mock_port_context,
+            self.testsegid)
         mock_set_state.assert_called_once_with(
-            self.mock_port,
-            self.mock_port_context._plugin_context)
+            self.mock_port_bm,
+            self.mock_port_context._plugin_context,
+            self.testhost,
+            self.testport)
 
     @mock.patch('networking_ansible.ml2.mech_driver.'
                 'AnsibleMechanismDriver._set_port_state')
@@ -565,7 +618,7 @@ class TestEnsurePort(base.NetworkingAnsibleTestCase):
                                                 mock_has_host,
                                                 mock_port_get_object,
                                                 mock_get_lock):
-        mock_port_get_object.return_value = self.mock_port
+        mock_port_get_object.return_value = self.mock_port_bm
         mock_set_state.return_value = True
         self.mech.ensure_port(
             self.mock_port_context.current,
@@ -573,10 +626,13 @@ class TestEnsurePort(base.NetworkingAnsibleTestCase):
             self.testhost,
             self.testport,
             self.testphysnet,
-            self.mock_port_context)
+            self.mock_port_context,
+            self.testsegid)
         mock_set_state.assert_called_once_with(
-            self.mock_port,
-            self.mock_port_context._plugin_context)
+            self.mock_port_bm,
+            self.mock_port_context._plugin_context,
+            self.testhost,
+            self.testport)
         self.mock_port_context.set_binding.assert_called_once()
 
     @mock.patch('networking_ansible.ml2.mech_driver.'
@@ -586,7 +642,7 @@ class TestEnsurePort(base.NetworkingAnsibleTestCase):
                                                    mock_has_host,
                                                    mock_port_get_object,
                                                    mock_get_lock):
-        mock_port_get_object.return_value = self.mock_port
+        mock_port_get_object.return_value = self.mock_port_bm
         mock_set_state.return_value = False
         self.mech.ensure_port(
             self.mock_port_context.current,
@@ -594,11 +650,80 @@ class TestEnsurePort(base.NetworkingAnsibleTestCase):
             self.testhost,
             self.testport,
             self.testphysnet,
-            self.mock_port_context)
+            self.mock_port_context,
+            self.testsegid)
         mock_set_state.assert_called_once_with(
-            self.mock_port,
-            self.mock_port_context._plugin_context)
+            self.mock_port_bm,
+            self.mock_port_context._plugin_context,
+            self.testhost,
+            self.testport)
         self.mock_port_context.set_binding.assert_not_called()
+
+    @mock.patch('networking_ansible.ml2.mech_driver.'
+                'AnsibleMechanismDriver._set_port_state')
+    def test_ensure_port_normal_port_delete_false(self,
+                                                  mock_set_state,
+                                                  mock_has_host,
+                                                  mock_port_get_object,
+                                                  mock_get_lock):
+        self.mech.ensure_port(self.mock_port_vm,
+                              self.mock_port_vm,
+                              self.testhost,
+                              self.testport,
+                              self.testphysnet,
+                              self.mock_port_vm,
+                              self.testsegid,
+                              delete=False)
+        mock_set_state.assert_called_with(self.mock_port_vm,
+                                          self.mock_port_vm,
+                                          self.testhost,
+                                          self.testport)
+
+    @mock.patch('network_runner.api.NetworkRunner.delete_trunk_vlan')
+    @mock.patch.object(ports.Port, 'get_objects')
+    def test_ensure_port_normal_port_delete_true(self,
+                                                 mock_get_objects,
+                                                 mock_delete_vlan,
+                                                 mock_has_host,
+                                                 mock_port_get_object,
+                                                 mock_get_lock):
+        self.mech.ensure_port(self.mock_port_vm,
+                              self.mock_port_vm,
+                              self.testhost,
+                              self.testport,
+                              self.testphysnet,
+                              self.mock_port_vm,
+                              self.testsegid,
+                              delete=True)
+        mock_delete_vlan.assert_called_with(self.testhost,
+                                            self.testport,
+                                            self.testsegid)
+
+    @mock.patch('network_runner.api.NetworkRunner.delete_trunk_vlan')
+    @mock.patch.object(ports.Port, 'get_objects')
+    def test_ensure_port_no_delete_w_active_ports(self,
+                                                  mock_get_objects,
+                                                  mock_delete_vlan,
+                                                  mock_has_host,
+                                                  mock_port_get_object,
+                                                  mock_get_lock):
+        '''
+        Check if there are port bindings associated with the same
+        compute host that the port is being deleted from. If there
+        are other port bindings on that compute node make sure that
+        the vlan won't be deleted from the compute node's switchport
+        so that the other portbindings don't loose connectivity
+        '''
+        mock_get_objects.return_value = [self.mock_port_bm]
+        self.mech.ensure_port(self.mock_port_vm,
+                              self.mock_port_vm,
+                              self.testhost,
+                              self.testport,
+                              self.testphysnet,
+                              self.mock_port_vm,
+                              self.testsegid,
+                              delete=True)
+        mock_delete_vlan.assert_not_called()
 
 
 @mock.patch.object(ports.Port, 'get_object')
@@ -616,17 +741,19 @@ class TestEnsureSubports(base.NetworkingAnsibleTestCase):
     def test_ensure_subports_valid(self,
                                    mock_set_state,
                                    mock_port_get_object):
-        mock_port_get_object.return_value = self.mock_port
+        mock_port_get_object.return_value = self.mock_port_bm
         self.mech.ensure_subports(self.testid, 'testdb')
-        mock_set_state.assert_called_once_with(self.mock_port,
-                                               'testdb')
+        mock_set_state.assert_called_once_with(self.mock_port_bm,
+                                               'testdb',
+                                               self.testhost,
+                                               self.testport)
 
     @mock.patch('networking_ansible.ml2.mech_driver.'
                 'AnsibleMechanismDriver._set_port_state')
     def test_ensure_subports_invalid(self,
                                      mock_set_state,
                                      mock_port_get_object):
-        mock_port_get_object.side_effect = [self.mock_port, None]
+        mock_port_get_object.side_effect = [self.mock_port_bm, None]
         self.mech.ensure_subports(self.testid, 'testdb')
         mock_set_state.assert_not_called()
 
@@ -636,53 +763,61 @@ class TestSetPortState(base.NetworkingAnsibleTestCase):
         self.assertRaises(ml2_exc.MechanismDriverError,
                           self.mech._set_port_state,
                           None,
-                          'db')
+                          'db', self.testhost, self.testport)
 
+    @mock.patch.object(network.Network, 'get_object')
     @mock.patch('networking_ansible.ml2.mech_driver.'
-                'AnsibleMechanismDriver._link_info_from_port')
-    def test_set_port_state_no_switch_name(self, mock_link):
-        mock_link.return_value = (None, '123', '')
+                'AnsibleMechanismDriver._switch_meta_from_link_info')
+    def test_set_port_state_no_switch_name(self, mock_link, mock_network):
+        mock_network.return_value = None
+        mock_link.return_value = ([(None, '123')], '')
         self.assertRaises(ml2_exc.MechanismDriverError,
                           self.mech._set_port_state,
-                          self.mock_port,
-                          'db')
+                          self.mock_port_bm,
+                          'db', self.testhost, self.testport)
 
+    @mock.patch.object(network.Network, 'get_object')
     @mock.patch('networking_ansible.ml2.mech_driver.'
-                'AnsibleMechanismDriver._link_info_from_port')
-    def test_set_port_state_no_switch_port(self, mock_link):
-        mock_link.return_value = ('123', None, '')
+                'AnsibleMechanismDriver._switch_meta_from_link_info')
+    def test_set_port_state_no_switch_port(self, mock_link, mock_network):
+        mock_network.return_value = None
+        mock_link.return_value = ([('123', None)], '')
         self.assertRaises(ml2_exc.MechanismDriverError,
                           self.mech._set_port_state,
-                          self.mock_port,
-                          'db')
+                          self.mock_port_bm,
+                          'db', self.testhost, self.testport)
 
     @mock.patch('networking_ansible.ml2.mech_driver.'
-                'AnsibleMechanismDriver._link_info_from_port')
+                'AnsibleMechanismDriver._switch_meta_from_link_info')
     @mock.patch('network_runner.api.NetworkRunner.has_host')
     def test_set_port_state_no_inventory_switch(self, mock_host, mock_link):
-        mock_link.return_value = ('123', '345', '')
+        mock_link.return_value = ([('123', '345')], '')
         mock_host.return_value = False
         self.assertRaises(ml2_exc.MechanismDriverError,
                           self.mech._set_port_state,
-                          self.mock_port,
-                          'db')
+                          self.mock_port_bm,
+                          'db', self.testhost, self.testport)
 
+    @mock.patch.object(network.Network, 'get_object')
     @mock.patch('networking_ansible.ml2.mech_driver.'
-                'AnsibleMechanismDriver._link_info_from_port')
-    def test_set_port_state_no_switch_port_or_name(self, mock_link):
-        mock_link.return_value = (None, None, '')
+                'AnsibleMechanismDriver._switch_meta_from_link_info')
+    def test_set_port_state_no_switch_port_or_name(self,
+                                                   mock_link,
+                                                   mock_network):
+        mock_link.return_value = ([(None, None)], '')
+        mock_network.return_value = None
         self.assertRaises(ml2_exc.MechanismDriverError,
                           self.mech._set_port_state,
-                          self.mock_port,
-                          'db')
+                          self.mock_port_bm,
+                          'db', self.testhost, self.testport)
 
     @mock.patch.object(network.Network, 'get_object')
     def test_set_port_state_no_network(self, mock_network):
         mock_network.return_value = None
         self.assertRaises(ml2_exc.MechanismDriverError,
                           self.mech._set_port_state,
-                          self.mock_port,
-                          'db')
+                          self.mock_port_bm,
+                          'db', self.testhost, self.testport)
 
     @mock.patch.object(network.Network, 'get_object')
     @mock.patch.object(trunk.Trunk, 'get_object')
@@ -690,12 +825,13 @@ class TestSetPortState(base.NetworkingAnsibleTestCase):
     @mock.patch.object(api.NetworkRunner, 'conf_trunk_port')
     def test_set_port_state_trunk(self,
                                   mock_conf_trunk_port,
-                                  mock_port,
+                                  mock_port_bm,
                                   mock_trunk,
                                   mock_network):
         mock_network.return_value = self.mock_net
-        mock_trunk.return_value = self.mock_port_trunk
-        self.mech._set_port_state(self.mock_port, 'db')
+        mock_trunk.return_value = self.mock_trunk
+        self.mech._set_port_state(self.mock_port_bm, 'db',
+                                  self.testhost, self.testport)
         mock_conf_trunk_port.assert_called_once_with(self.testhost,
                                                      self.testport,
                                                      self.testsegid,
@@ -707,12 +843,13 @@ class TestSetPortState(base.NetworkingAnsibleTestCase):
     @mock.patch.object(api.NetworkRunner, 'conf_access_port')
     def test_set_port_state_access(self,
                                    mock_conf_access_port,
-                                   mock_port,
+                                   mock_port_bm,
                                    mock_trunk,
                                    mock_network):
         mock_network.return_value = self.mock_net
         mock_trunk.return_value = None
-        self.mech._set_port_state(self.mock_port, 'db')
+        self.mech._set_port_state(self.mock_port_bm, 'db',
+                                  self.testhost, self.testport)
         mock_conf_access_port.assert_called_once_with(self.testhost,
                                                       self.testport,
                                                       self.testsegid)
@@ -723,17 +860,34 @@ class TestSetPortState(base.NetworkingAnsibleTestCase):
     @mock.patch.object(api.NetworkRunner, 'conf_access_port')
     def test_set_port_state_access_failure(self,
                                            mock_conf_access_port,
-                                           mock_port,
+                                           mock_port_bm,
                                            mock_trunk,
                                            mock_network):
         mock_network.return_value = self.mock_net
         mock_trunk.return_value = None
-        self.mech._set_port_state(self.mock_port, 'db')
+        self.mech._set_port_state(self.mock_port_bm, 'db',
+                                  self.testhost, self.testport)
         mock_conf_access_port.side_effect = Exception()
         self.assertRaises(netans_ml2exc.NetworkingAnsibleMechException,
                           self.mech._set_port_state,
-                          self.mock_port,
-                          'db')
+                          self.mock_port_bm,
+                          'db', self.testhost, self.testport)
+
+    @mock.patch.object(network.Network, 'get_object')
+    @mock.patch.object(trunk.Trunk, 'get_object')
+    @mock.patch.object(api.NetworkRunner, 'add_trunk_vlan')
+    def test_set_port_state_normal(self,
+                                   mock_add_trunk_vlan,
+                                   mock_trunk,
+                                   mock_network):
+
+        mock_network.return_value = self.mock_net
+        mock_trunk.return_value = None
+        self.mech._set_port_state(self.mock_port_vm, 'db',
+                                  self.testhost, self.testport)
+        mock_add_trunk_vlan.assert_called_once_with(self.testhost,
+                                                    self.testport,
+                                                    self.testsegid)
 
 
 @mock.patch.object(api.NetworkRunner, 'create_vlan')
@@ -766,7 +920,7 @@ class TestML2PluginIntegration(NetAnsibleML2Base):
     BIND_PORT_UPDATE = {
         'port': {
             'binding:host_id': 'foo',
-            'binding:vnic_type': portbindings.VNIC_BAREMETAL,
+            portbindings.VNIC_TYPE: portbindings.VNIC_BAREMETAL,
             'binding:profile': {
                 'local_link_information': LOCAL_LINK_INFORMATION,
             },

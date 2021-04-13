@@ -14,6 +14,7 @@
 # under the License.
 
 import pbr
+import uuid
 
 from neutron.objects import network
 from neutron.objects import ports
@@ -26,8 +27,10 @@ from oslotest import base
 from tooz import coordination
 from unittest import mock
 
+from networking_ansible import constants as c
 from networking_ansible import config
 from networking_ansible.ml2 import mech_driver
+from network_runner.types import validators
 
 QUOTA_REGISTRIES = (
     "neutron.quota.resource_registry.unregister_all_resources",
@@ -51,6 +54,7 @@ class MockConfig(object):
     def __init__(self, host=None, mac=None):
         self.inventory = {host: {'mac': mac}} if host and mac else {}
         self.mac_map = {}
+        self.port_mappings = {}
 
     def add_extra_params(self):
         for i in self.inventory:
@@ -96,25 +100,31 @@ class NetworkingAnsibleTestCase(BaseTestCase):
         patch_neutron_quotas()
         super(NetworkingAnsibleTestCase, self).setUp()
         config_module = 'networking_ansible.ml2.mech_driver.config.Config'
-        with mock.patch(config_module) as m_cfg:
-            m_cfg.return_value = self.m_config
-            self.mech = mech_driver.AnsibleMechanismDriver()
-            with mock.patch(COORDINATION) as m_coord:
-                m_coord.get_coordinator = lambda *args: mock.create_autospec(
-                    coordination.CoordinationDriver).return_value
-                self.mech.initialize()
+        with mock.patch.object(validators.ChoiceValidator, '__call__',
+                               return_value=None):
+            with mock.patch(config_module) as m_cfg:
+                m_cfg.return_value = self.m_config
+                self.mech = mech_driver.AnsibleMechanismDriver()
+                with mock.patch(COORDINATION) as m_coord:
+                    m_coord.get_coordinator = \
+                        lambda *args: mock.create_autospec(
+                            coordination.CoordinationDriver
+                        ).return_value
+                    self.mech.initialize()
 
-        self.testsegid = '37'
-        self.testsegid2 = '73'
+        self.testsegid = 37
+        self.testsegid2 = 73
         self.testport = 'switchportid'
-        self.testid = 'aaaa-bbbb-cccc'
-        self.testid2 = 'cccc-bbbb-aaaa'
+        self.testid = uuid.uuid4()
+        self.testid2 = uuid.uuid4()
+        self.test_hostid = 'testhostid'
 
         # Define mocked network context
         self.mock_net_context = mock.create_autospec(
             driver_context.NetworkContext).return_value
         self.mock_net_context.current = {
             'id': self.testsegid,
+            'binding:host_id': 'fake-host-id',
             provider_net.NETWORK_TYPE: 'vlan',
             provider_net.SEGMENTATION_ID: self.testsegid,
             provider_net.PHYSICAL_NETWORK: self.testphysnet,
@@ -142,6 +152,7 @@ class NetworkingAnsibleTestCase(BaseTestCase):
         self.mock_netseg3.physical_network = 'virtual'
         self.mock_netseg3.network_type = 'vxlan'
 
+        # Binding profile dicts with
         # Local Link Information dicts
         self.lli_no_mac = {
             'local_link_information': [{
@@ -153,59 +164,74 @@ class NetworkingAnsibleTestCase(BaseTestCase):
             'local_link_information': [{
                 'switch_id': self.testmac,
                 'port_id': self.testport,
-            }]
-        }
+                }]
+            }
 
-        # Mocked trunk port objects
-        self.mock_port_trunk = mock.Mock(spec=trunk.Trunk)
+        # Mocked trunk port and subport objects
+        self.mock_trunk = mock.Mock(spec=trunk.Trunk)
+        self.mock_trunk.network_id = uuid.uuid4()
         self.mock_subport_1 = mock.Mock(spec=trunk.SubPort)
         self.mock_subport_1.segmentation_id = self.testsegid2
-        self.mock_port_trunk.sub_ports = [self.mock_subport_1]
+        self.mock_trunk.sub_ports = [self.mock_subport_1]
 
         # Mocked port objects
-        self.mock_port = mock.create_autospec(
+        self.mock_port_bm = mock.create_autospec(
             ports.Port).return_value
-        self.mock_port.network_id = self.testid
-        self.mock_port.dict = {
+        self.mock_port_bm.network_id = self.testid
+        self.mock_port_bm.dict = {
             'id': self.testid,
+            'network_id': uuid.uuid4(),
             'mac_address': self.testmac,
+            c.DEVICE_OWNER: c.BAREMETAL_NONE,
             portbindings.VIF_TYPE: portbindings.VIF_TYPE_OTHER,
-            portbindings.VNIC_TYPE: portbindings.VNIC_BAREMETAL
-        }
-        self.mock_port.__getitem__ = mock.Mock(
-            side_effect=lambda x: self.mock_port.dict[x])
+            portbindings.VNIC_TYPE: portbindings.VNIC_BAREMETAL,
+            portbindings.HOST_ID: self.test_hostid
+            }
+        self.mock_port_bm.__getitem__ = mock.Mock(
+            side_effect=lambda x: self.mock_port_bm.dict[x])
 
-        self.mock_port2 = mock.create_autospec(
+        self.mock_port_vm = mock.create_autospec(
             ports.Port).return_value
-        self.mock_port2.network_id = self.testid2
-        self.mock_port2.dict = {
-            'id': self.testid,
+        self.mock_port_vm.network_id = self.testid2
+        self.mock_port_vm.dict = {
+            'id': self.testid2,
+            'network_id': uuid.uuid4(),
             'mac_address': self.testmac,
+            c.DEVICE_OWNER: c.COMPUTE_NOVA,
             portbindings.VIF_TYPE: portbindings.VIF_TYPE_OVS,
-            portbindings.VNIC_TYPE: portbindings.VNIC_NORMAL
+            portbindings.VNIC_TYPE: portbindings.VNIC_NORMAL,
+            portbindings.HOST_ID: self.test_hostid
         }
-        self.mock_port2.__getitem__ = mock.Mock(
-            side_effect=lambda x: self.mock_port2.dict[x])
+        self.mock_port_vm.__getitem__ = mock.Mock(
+            side_effect=lambda x: self.mock_port_vm.dict[x])
 
-        self.mock_ports = [self.mock_port]
+        self.mock_ports = [self.mock_port_bm]
 
         # Mocked port bindings
         self.mock_portbind = mock.Mock(spec=ports.PortBinding)
         self.mock_portbind.profile = self.lli_no_mac
+        self.mock_portbind.dict = {'host': self.test_hostid}
         self.mock_portbind.vnic_type = 'baremetal'
         self.mock_portbind.vif_type = 'other'
-        self.mock_port.bindings = [self.mock_portbind]
+        self.mock_portbind.__getitem__ = mock.Mock(
+            side_effect=lambda x: self.mock_portbind.dict[x])
+
+        self.mock_port_bm.bindings = [self.mock_portbind]
 
         # define mocked port context
+        # This isn't a true representation of a real
+        # port context. The components are just being
+        # staged for the tests to eventually move things
+        # around to execute
         self.mock_port_context = mock.create_autospec(
             driver_context.PortContext).return_value
-        self.mock_port_context.current = self.mock_port
-        self.mock_port_context.original = self.mock_port2
+        self.mock_port_context.current = self.mock_port_bm
+        self.mock_port_context.original = self.mock_port_vm
         self.mock_port_context._plugin_context = mock.MagicMock()
         self.mock_port_context.network = mock.Mock()
         self.mock_port_context.network.current = {
             'id': self.testid,
-            # TODO(radez) should an int be use here or str ok?
+            'network_id': self.testid,
             provider_net.NETWORK_TYPE: 'vlan',
             provider_net.SEGMENTATION_ID: self.testsegid,
             provider_net.PHYSICAL_NETWORK: self.testphysnet

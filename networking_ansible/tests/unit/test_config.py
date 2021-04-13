@@ -26,13 +26,23 @@ class MockedConfigParser(mock.Mock):
         self.sections = sections
 
     def parse(self):
-        section_data = {'ansible:testhost': {'mac': ['01:23:45:67:89:ab']}}
-        if self.conffile == 'foo2':
+        section_data = {'ansible:port_mappings':
+                        {'localhost': ['testhost::testport']},
+                        'ansible:testhost':
+                        {'mac': ['01:23:45:67:89:ab']}
+                        }
+        if self.conffile == 'check_manage_vlans':
             section_data = {
                 'ansible:h1': {'manage_vlans': ['0']},
                 'ansible:h2': {'manage_vlans': ['true']},
                 'ansible:h3': {'manage_vlans': ['false']},
             }
+        elif self.conffile == 'invalid_port_mapping':
+            section_data = {'ansible:port_mappings':
+                            {'localhost': ['invalid']},
+                            'ansible:testhost':
+                            {'mac': ['01:23:45:67:89:ab']}
+                            }
 
         self.sections.update(section_data)
 
@@ -54,7 +64,7 @@ class TestConfig(base.BaseTestCase):
     @mock.patch('networking_ansible.config.LOG')
     @mock.patch('networking_ansible.config.cfg.ConfigParser')
     def test_config_parser_error(self, mock_parser, mock_log):
-        self.test_config_files = ['/etc/foo.conf']
+        self.test_config_files = ['/etc/default.conf']
         self.setup_config()
 
         mock_parser().parse.side_effect = IOError()
@@ -65,18 +75,28 @@ class TestConfig(base.BaseTestCase):
     @mock.patch('networking_ansible.config.cfg.ConfigParser',
                 MockedConfigParser)
     def test_config_w_hosts(self):
-        self.test_config_files = ['foo']
+        self.test_config_files = ['default']
         self.setup_config()
 
         self.assertEqual(self.m_config.inventory,
                          self.ansconfig.Config().inventory)
         self.assertEqual({'01:23:45:67:89:AB': 'testhost'},
                          self.ansconfig.Config().mac_map)
+        self.assertEqual({'localhost': [('testhost', 'testport')]},
+                         self.ansconfig.Config().port_mappings)
+
+    @mock.patch('networking_ansible.config.cfg.ConfigParser',
+                MockedConfigParser)
+    def test_config_w_invalid_port_mapping(self):
+        self.test_config_files = ['invalid_port_mapping']
+        self.setup_config()
+
+        self.assertEqual({}, self.ansconfig.Config().port_mappings)
 
     @mock.patch('networking_ansible.config.cfg.ConfigParser',
                 MockedConfigParser)
     def test_config_from_file(self):
-        self.test_config_files = ['foo2']
+        self.test_config_files = ['check_manage_vlans']
         self.setup_config()
 
         hosts = self.ansconfig.Config().inventory

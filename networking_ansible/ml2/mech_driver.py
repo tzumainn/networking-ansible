@@ -39,7 +39,6 @@ from network_runner.models.inventory import Inventory
 
 from tooz import coordination
 
-
 LOG = logging.getLogger(__name__)
 CONF = config.CONF
 
@@ -176,7 +175,6 @@ class AnsibleMechanismDriver(ml2api.MechanismDriver):
 
         # assuming all hosts
         # TODO(radez): can we filter by physnets?
-        LOG.debug('ansnet:network delete')
         for host_name in self.ml2config.inventory:
             host = self.ml2config.inventory[host_name]
 
@@ -243,7 +241,28 @@ class AnsibleMechanismDriver(ml2api.MechanismDriver):
         state. It is up to the mechanism driver to ignore state or
         state changes that it does not know or care about.
         """
-        if self._is_port_bound(context.current):
+        # Handle VM ports
+        if self._is_port_normal(context.current):
+            port = context.current
+            network = context.network.current
+            mappings, segmentation_id = self.get_switch_meta(port, network)
+
+            for switch_name, switch_port in mappings:
+                LOG.debug('Ensuring Updated port {switch_port} on network '
+                          '{network} {switch_name} to vlan: '
+                          '{segmentation_id}'.format(
+                              switch_port=switch_port,
+                              network=network,
+                              switch_name=switch_name,
+                              segmentation_id=segmentation_id))
+
+                self.ensure_port(port, context._plugin_context,
+                                 switch_name, switch_port,
+                                 network[provider_net.PHYSICAL_NETWORK],
+                                 context,
+                                 segmentation_id)
+        # Baremetal Operations
+        elif self._is_port_bound(context.current):
             port = context.current
             provisioning_blocks.provisioning_complete(
                 context._plugin_context, port['id'], resources.PORT,
@@ -252,20 +271,22 @@ class AnsibleMechanismDriver(ml2api.MechanismDriver):
         elif self._is_port_bound(context.original):
             port = context.original
             network = context.network.current
-            switch_name, switch_port, segmentation_id = \
-                self._link_info_from_port(context.original, network)
+            mappings, segmentation_id = self.get_switch_meta(port, network)
 
-            LOG.debug('Ensuring Updated port {switch_port} on network '
-                      '{network} {switch_name} to vlan: '
-                      '{segmentation_id}'.format(
-                          switch_port=switch_port,
-                          network=network,
-                          switch_name=switch_name,
-                          segmentation_id=segmentation_id))
+            for switch_name, switch_port in mappings:
+                LOG.debug('Ensuring Updated port {switch_port} on network '
+                          '{network} {switch_name} to vlan: '
+                          '{segmentation_id}'.format(
+                              switch_port=switch_port,
+                              network=network,
+                              switch_name=switch_name,
+                              segmentation_id=segmentation_id))
 
-            self.ensure_port(port, context._plugin_context,
-                             switch_name, switch_port,
-                             network[provider_net.PHYSICAL_NETWORK], context)
+                self.ensure_port(port, context._plugin_context,
+                                 switch_name, switch_port,
+                                 network[provider_net.PHYSICAL_NETWORK],
+                                 context,
+                                 segmentation_id)
 
     def delete_port_postcommit(self, context):
         """Delete a port.
@@ -284,18 +305,20 @@ class AnsibleMechanismDriver(ml2api.MechanismDriver):
 
         if self._is_port_bound(context.current):
 
-            switch_name, switch_port, segmentation_id = \
-                self._link_info_from_port(port, network)
+            mappings, segmentation_id = self.get_switch_meta(port, network)
 
-            LOG.debug('Ensuring Deleted port {switch_port} on '
-                      '{switch_name} to vlan: {segmentation_id}'.format(
-                          switch_port=switch_port,
-                          switch_name=switch_name,
-                          segmentation_id=segmentation_id))
+            for switch_name, switch_port in mappings:
+                LOG.debug('Ensuring Deleted port {switch_port} on '
+                          '{switch_name} to vlan: {segmentation_id}'.format(
+                              switch_port=switch_port,
+                              switch_name=switch_name,
+                              segmentation_id=segmentation_id))
 
-            self.ensure_port(port, context._plugin_context,
-                             switch_name, switch_port,
-                             network[provider_net.PHYSICAL_NETWORK], context)
+                self.ensure_port(port, context._plugin_context,
+                                 switch_name, switch_port,
+                                 network[provider_net.PHYSICAL_NETWORK],
+                                 context,
+                                 segmentation_id, delete=True)
 
     def bind_port(self, context):
         """Attempt to bind a port.
@@ -342,33 +365,50 @@ class AnsibleMechanismDriver(ml2api.MechanismDriver):
         port = context.current
         network = context.network.current
 
-        # Run this before extracting lli, lli_from_port runs the same condition
-        # and will raise before this is checked
+        # Run this before getting switch meta, switch_meta_from_local_info
+        # runs the same condition and will raise before this is checked
         if not self._is_port_supported(port):
-            LOG.debug('Port {} has vnic_type set to {} which is not correct '
-                      'to work with networking-ansible driver.'.format(
-                          port['id'],
-                          port[portbindings.VNIC_TYPE]))
+            LOG.warning('Port {} has device_owner: {} and vnic_type: {}'
+                        ' which is not supported by networking-ansible'
+                        ', ignoring.'.format(
+                            port['id'],
+                            port[c.DEVICE_OWNER],
+                            port[portbindings.VNIC_TYPE]))
             return
 
-        switch_name, switch_port, segmentation_id = \
-            self._link_info_from_port(port, network)
+        mappings, segmentation_id = self.get_switch_meta(port, network)
 
-        LOG.debug('Plugging in port {switch_port} on '
-                  '{switch_name} to vlan: {segmentation_id}'.format(
-                      switch_port=switch_port,
-                      switch_name=switch_name,
-                      segmentation_id=segmentation_id))
+        for switch_name, switch_port in mappings:
 
-        provisioning_blocks.add_provisioning_component(
-            context._plugin_context, port['id'], resources.PORT,
-            c.NETWORKING_ENTITY)
+            LOG.debug('Plugging in port {switch_port} on '
+                      '{switch_name} to vlan: {segmentation_id}'.format(
+                          switch_port=switch_port,
+                          switch_name=switch_name,
+                          segmentation_id=segmentation_id))
 
-        self.ensure_port(port, context._plugin_context,
-                         switch_name, switch_port,
-                         network[provider_net.PHYSICAL_NETWORK], context)
+            provisioning_blocks.add_provisioning_component(
+                context._plugin_context, port['id'], resources.PORT,
+                c.NETWORKING_ENTITY)
 
-    def _link_info_from_port(self, port, network=None):
+            self.ensure_port(port, context._plugin_context,
+                             switch_name, switch_port,
+                             network[provider_net.PHYSICAL_NETWORK], context,
+                             segmentation_id)
+
+    def get_switch_meta(self, port, network=None):
+        '''
+        port: neutron port object
+        network: neutron network object
+        returns: list of mappings tuples and segmentation_id
+                 mapping tuple: ('switch_name', 'switch_port')
+        '''
+        if self._is_port_baremetal(port):
+            return self._switch_meta_from_link_info(port, network)
+        elif self._is_port_normal(port):
+            return self._switch_meta_from_port_host_id(port, network)
+        return None, None, None
+
+    def _switch_meta_from_link_info(self, port, network=None):
         network = network or {}
 
         local_link_info = self._get_port_lli(port)
@@ -387,7 +427,16 @@ class AnsibleMechanismDriver(ml2api.MechanismDriver):
         if not switch_name and switch_mac in self.ml2config.mac_map:
             switch_name = self.ml2config.mac_map[switch_mac]
         segmentation_id = network.get(provider_net.SEGMENTATION_ID, '')
-        return switch_name, switch_port, segmentation_id
+        return [(switch_name, switch_port)], segmentation_id
+
+    def _switch_meta_from_port_host_id(self, port, network=None):
+        network = network or {}
+        # TODO What do we do if there is not a mapping available?
+        #      should we fail in some way?
+        host_id = port[portbindings.HOST_ID]
+        mappings = self.ml2config.port_mappings.get(host_id, [])
+        segmentation_id = network.get('provider:segmentation_id', '')
+        return mappings, segmentation_id
 
     def ensure_subports(self, port_id, db):
         # set the correct state on port in the case where it has subports.
@@ -401,27 +450,29 @@ class AnsibleMechanismDriver(ml2api.MechanismDriver):
                       'that has been deleted')
             return
 
-        # get switch from port bindings
-        switch_name, switch_port, segmentation_id = \
-            self._link_info_from_port(port, None)
+        # get switch info
+        mappings, segmentation_id = self.get_switch_meta(port)
 
-        # lock switch
-        lock = self.coordinator.get_lock(switch_name)
-        with lock:
-            # get updated port from db
-            updated_port = Port.get_object(db, id=port_id)
-            if updated_port:
-                self._set_port_state(updated_port, db)
-                return
-            else:
-                # port delete operation will take care of deletion
-                LOG.debug('Discarding attempt to ensure subports on a port {} '
-                          'that was deleted after lock '
-                          'acquisition'.format(port_id))
-                return
+        for switch_name, switch_port in mappings:
+            # lock switch
+            lock = self.coordinator.get_lock(switch_name)
+            with lock:
+                # get updated port from db
+                updated_port = Port.get_object(db, id=port_id)
+                if updated_port:
+                    self._set_port_state(updated_port, db,
+                                         switch_name, switch_port)
+                    return
+                else:
+                    # port delete operation will take care of deletion
+                    LOG.debug('Discarding attempt to ensure subports on a port'
+                              ' {} that was deleted after lock '
+                              'acquisition'.format(port_id))
+                    return
 
     def ensure_port(self, port, db, switch_name,
-                    switch_port, physnet, port_context):
+                    switch_port, physnet, port_context,
+                    segmentation_id, delete=False):
         LOG.debug('Ensuring state of port {port_id} '
                   'with mac addr {mac} '
                   'on switch {switch_name} '
@@ -445,63 +496,118 @@ class AnsibleMechanismDriver(ml2api.MechanismDriver):
         # get dlock for the switch we're working with
         lock = self.coordinator.get_lock(switch_name)
         with lock:
-
             # port = get the port from the db
             updated_port = Port.get_object(db, id=port['id'])
 
-            # if it exists and is bound to a port
-            if self._get_port_lli(updated_port):
-                if self._set_port_state(updated_port, db):
+            if self._is_port_normal(port):
+                # OVS handles the port binding for the VM. There's no awareness
+                # that the compute node port is being configured in openstack.
+                # By the time we get the port object it's already been handled
+                # by OVS so we can't detect if it's being deleted by its state.
+                # We have to rely on the hook that's called to indicate
+                # whether to do an update or delete. Since ensure port handles
+                # both the delete flag needs to be passed for VM ports.
+                if delete:
+                    # Get active ports on this port's network
+                    # We should not delete the vlan from the compute node's
+                    # trunk if there are other ports still using the vlan
+                    active_ports = Port.get_objects(
+                        db,
+                        network_id=port['network_id'],
+                        device_owner=c.COMPUTE_NOVA)
+
+                    LOG.debug('Active Ports: {}'.format(active_ports))
+
+                    # Get_objects can't filter by binding:host_id so we use a
+                    # python filter function to finish filtering the ports by
+                    # compute host_id
+                    def active_port_filter(db_port):
+                        for binding in db_port.bindings:
+                            if binding['host'] == port[portbindings.HOST_ID] \
+                                and db_port['id'] != port['id']:
+                                return True
+                        # Default to false
+                        return False
+
+                    active_ports = list(filter(active_port_filter,
+                                               active_ports))
+                    LOG.debug('Filtered Active Ports: {}'.format(active_ports))
+
+                    # If there are other VM's active ports on this port's
+                    # network we will skip removing the vlan from the
+                    # compute node's trunk port
+                    if not active_ports:
+                        self.net_runr.delete_trunk_vlan(
+                            switch_name,
+                            switch_port,
+                            segmentation_id,
+                            **self.kwargs[switch_name])
+                    else:
+                        LOG.info('Skip removing Segmentation ID {} from '
+                                 'compute host {}. There are {} other '
+                                 'active ports using the VLAN.'.format(
+                                     segmentation_id,
+                                     port[portbindings.HOST_ID],
+                                     len(active_ports)))
+
+                else:
+                    self._set_port_state(port, db, switch_name, switch_port)
+
+                return
+
+            # if baremetal port exists and is bound to a port
+            elif self._get_port_lli(updated_port):
+
+                if self._set_port_state(updated_port, db,
+                                        switch_name, switch_port):
                     if port_context and port_context.segments_to_bind:
                         segments = port_context.segments_to_bind
                         port_context.set_binding(segments[0][ml2api.ID],
                                                  portbindings.VIF_TYPE_OTHER,
                                                  {})
-                return
+                    return
 
             else:
                 # if the port doesn't exist, we have a mac+switch, we can look
                 # up whether the port needs to be deleted on the switch
                 if self._is_deleted_port_in_use(physnet,
                                                 port['mac_address'], db):
-                    LOG.debug('Port {port_id} was deleted, but its switch port'
-                              ' {sp} is now in use by another port, discarding'
-                              ' request to delete'.format(port_id=port['id'],
-                                                          sp=switch_port))
+                    LOG.debug('Port {port_id} was deleted, but its switch'
+                              'port {sp} is now in use by another port, '
+                              'discarding request to delete'.format(
+                                  port_id=port['id'],
+                                  sp=switch_port))
                     return
                 else:
                     self._delete_switch_port(switch_name, switch_port)
 
-    def _set_port_state(self, port, db):
+    def _set_port_state(self, port, db, switch_name, switch_port):
         if not port:
             # error
             raise ml2_exc.MechanismDriverError('Null port passed to '
                                                'set_port_state')
 
-        # get switch name and port from port bindings
-        switch_name, switch_port, tmp = \
-            self._link_info_from_port(port, None)
-
         if not switch_name or not switch_port:
             # error/raise
             raise ml2_exc.MechanismDriverError('NetAnsible: couldnt find '
-                                               'switch_name {} or switch port '
-                                               '{} to set port '
+                                               'switch_name {} or switch '
+                                               'port {} to set port '
                                                'state'.format(switch_name,
                                                               switch_port))
 
         if not self.net_runr.has_host(switch_name):
             raise ml2_exc.MechanismDriverError('NetAnsible: couldnt find '
                                                'switch_name {} in '
-                                               'inventory'.format(switch_name))
+                                               'inventory'.format(
+                                                   switch_name))
 
-        network = Network.get_object(db, id=port.network_id)
+        network = Network.get_object(db, id=port['network_id'])
         if not network:
             raise ml2_exc.MechanismDriverError('NetAnsible: couldnt find '
                                                'network for port '
                                                '{}'.format(port.id))
 
-        trunk = Trunk.get_object(db, port_id=port.id)
+        trunk = Trunk.get_object(db, port_id=port['id'])
 
         segmentation_id = network.segments[0].segmentation_id
         # Assign port to network
@@ -515,6 +621,12 @@ class AnsibleMechanismDriver(ml2api.MechanismDriver):
                                               trunked_vlans,
                                               **self.kwargs[switch_name])
 
+            elif self._is_port_normal(port):
+                self.net_runr.add_trunk_vlan(switch_name,
+                                             switch_port,
+                                             segmentation_id,
+                                             **self.kwargs[switch_name])
+
             else:
                 self.net_runr.conf_access_port(
                     switch_name,
@@ -524,7 +636,7 @@ class AnsibleMechanismDriver(ml2api.MechanismDriver):
 
             LOG.info('Port {neutron_port} has been plugged into '
                      'switch port {sp} on device {switch_name}'.format(
-                         neutron_port=port.id,
+                         neutron_port=port['id'],
                          sp=switch_port,
                          switch_name=switch_name))
             return True
@@ -532,7 +644,7 @@ class AnsibleMechanismDriver(ml2api.MechanismDriver):
             LOG.error('Failed to plug port {neutron_port} into '
                       'switch port: {sp} on device: {sw} '
                       'reason: {exc}'.format(
-                          neutron_port=port.id,
+                          neutron_port=port['id'],
                           sp=switch_port,
                           sw=switch_name,
                           exc=e))
@@ -605,16 +717,39 @@ class AnsibleMechanismDriver(ml2api.MechanismDriver):
         :param port: The port to check
         :returns: Whether the port is supported
 
-        Ports supported by this driver have a VNIC type of 'baremetal'.
         """
         vnic_type = port[portbindings.VNIC_TYPE]
-        return vnic_type == portbindings.VNIC_BAREMETAL
+        device_owner = port[c.DEVICE_OWNER]
+        return vnic_type in c.SUPPORTED_TYPES and \
+            device_owner in c.SUPPORTED_OWNERS
+
+    @staticmethod
+    def _is_port_baremetal(port):
+        """Return whether a port is for baremetal server.
+
+        :param port: The port to check
+        :returns: Whether the port is for baremetal
+
+        """
+        device_owner = port[c.DEVICE_OWNER]
+        return device_owner == c.BAREMETAL_NONE
+
+    @staticmethod
+    def _is_port_normal(port):
+        """Return whether a port is for VM server.
+
+        :param port: The port to check
+        :returns: Whether the port is for type normal
+
+        """
+        device_owner = port[c.DEVICE_OWNER]
+        return device_owner == c.COMPUTE_NOVA
 
     @staticmethod
     def _is_port_bound(port):
         """Return whether a port is bound by this driver.
 
-        Ports bound by this driver have their VIF type set to 'other'.
+        Baremetal ports bound by this driver have a VIF type 'other'.
 
         :param port: The port to check
         :returns: Whether the port is bound
@@ -623,7 +758,16 @@ class AnsibleMechanismDriver(ml2api.MechanismDriver):
             return False
 
         vif_type = port[portbindings.VIF_TYPE]
-        return vif_type == portbindings.VIF_TYPE_OTHER
+        # Check type Baremetal bound
+        if AnsibleMechanismDriver._is_port_baremetal(port):
+            return vif_type == portbindings.VIF_TYPE_OTHER
+
+        # Check type OVS bound
+        if AnsibleMechanismDriver._is_port_normal(port):
+            return vif_type == portbindings.VIF_TYPE_OVS
+
+        # Default: not bound
+        return False
 
     @staticmethod
     def _get_port_lli(port):

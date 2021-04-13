@@ -13,11 +13,20 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from neutron_lib.api.definitions import portbindings
+
 COORDINATION = 'networking_ansible.ml2.mech_driver.coordination'
-DRIVER_TAG = 'ansible:'
-LLI = 'local_link_information'
 NETWORKING_ENTITY = 'ANSIBLENETWORKING'
+DRIVER_TAG = 'ansible:'
+PORT_MAPPINGS = DRIVER_TAG + 'port_mappings'
+LLI = 'local_link_information'
 CUSTOM_PARAM_PREFIX = 'cp_'
+DEVICE_OWNER = 'device_owner'
+COMPUTE_NOVA = 'compute:nova'
+BAREMETAL_NONE = 'baremetal:none'
+SUPPORTED_OWNERS = (BAREMETAL_NONE, COMPUTE_NOVA)
+SUPPORTED_TYPES = (portbindings.VNIC_BAREMETAL,
+                   portbindings.VNIC_NORMAL)
 
 # values that will be cast to Bool in the conf process
 BOOLEANS = ['manage_vlans', 'stp_edge']
