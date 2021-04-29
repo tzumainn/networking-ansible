@@ -13,10 +13,6 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-# temp imports for py36 skipifs
-import sys
-from unittest import skipIf
-
 import contextlib
 import tempfile
 
@@ -789,8 +785,6 @@ class TestML2PluginIntegration(NetAnsibleML2Base):
         network = self.deserialize(self.fmt, res)
         return res, network
 
-    @skipIf(sys.version_info.minor == 6,
-            'Temp skip: waiting on unreleased neutron fixes')
     def test_create_network(self, m_create_vlan):
         res, _ = self._create_network_with_spec('tenant', self.network_spec)
         self.assertEqual(webob.exc.HTTPCreated.code, res.status_int)
@@ -804,8 +798,6 @@ class TestML2PluginIntegration(NetAnsibleML2Base):
             expected_calls,
             m_create_vlan.call_args_list)
 
-    @skipIf(sys.version_info.minor == 6,
-            'Temp skip: waiting on unreleased neutron fixes')
     @mock.patch.object(api.NetworkRunner, 'delete_vlan')
     def test_delete_network(self, m_delete_vlan, m_create_vlan):
         res, network = self._create_network_with_spec('tenant',
@@ -842,8 +834,6 @@ class TestML2PluginIntegration(NetAnsibleML2Base):
                         ) as p:
                     yield p
 
-    @skipIf(sys.version_info.minor == 6,
-            'Temp skip: waiting on unreleased neutron fixes')
     @mock.patch.object(api.NetworkRunner, 'conf_access_port')
     def test_update_port_unbound(self, m_conf_access_port, m_create_vlan):
         with self._create_unbound_port() as p:
@@ -865,8 +855,6 @@ class TestML2PluginIntegration(NetAnsibleML2Base):
                 portbindings.VIF_TYPE_BINDING_FAILED,
                 port['port'][portbindings.VIF_TYPE])
 
-    @skipIf(sys.version_info.minor == 6,
-            'Temp skip: waiting on unreleased neutron fixes')
     @mock.patch.object(api.NetworkRunner, 'delete_port')
     def test_delete_port(self, m_delete_port, m_create_vlan):
         with self._create_unbound_port() as p:
@@ -885,8 +873,6 @@ class TestML2PluginIntegration(NetAnsibleML2Base):
                 self.LOCAL_LINK_INFORMATION[0]['port_id'],
                 self.network_spec[provider_net.SEGMENTATION_ID])
 
-    @skipIf(sys.version_info.minor == 6,
-            'Temp skip: waiting on unreleased neutron fixes')
     @mock.patch.object(api.NetworkRunner, 'conf_access_port')
     def test_update_port_error(self, m_conf_access_port, m_create_vlan):
         with self._create_unbound_port() as p:

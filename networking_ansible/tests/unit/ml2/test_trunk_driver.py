@@ -10,9 +10,6 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-# temp imports for py36 skips
-import sys
-from unittest import skipIf
 
 from neutron.objects import trunk
 from neutron_lib.callbacks import events
@@ -33,8 +30,6 @@ TEST_PORT_ID = 'abcd-1234-hexu'
 @mock.patch.object(n_context, 'get_admin_context')
 class NetAnsibleTrunkHandlerTestCase(base.BaseTestCase):
 
-    @skipIf(sys.version_info.minor == 6,
-            'Temp skip: waiting on unreleased neutron fixes')
     def test_subports_added(self, mock_context):
         driver = mock.Mock(spec=mech_driver.AnsibleMechanismDriver)
         handler = trunk_driver.NetAnsibleTrunkHandler(driver)
@@ -46,8 +41,6 @@ class NetAnsibleTrunkHandlerTestCase(base.BaseTestCase):
         driver.ensure_subports.assert_called_once_with(
             payload.current_trunk.port_id, mock_context())
 
-    @skipIf(sys.version_info.minor == 6,
-            'Temp skip: waiting on unreleased neutron fixes')
     def test_subports_deleted(self, mock_context):
         driver = mock.Mock(spec=mech_driver.AnsibleMechanismDriver)
         handler = trunk_driver.NetAnsibleTrunkHandler(driver)
@@ -62,8 +55,6 @@ class NetAnsibleTrunkHandlerTestCase(base.BaseTestCase):
 
 class NetAnsibleTrunkDriverTestCase(base.BaseTestCase):
 
-    @skipIf(sys.version_info.minor == 6,
-            'Temp skip: waiting on unreleased neutron fixes')
     def test_driver_creation(self):
         netans_driver = trunk_driver.NetAnsibleTrunkDriver.create(mock.Mock())
         self.assertFalse(netans_driver.is_loaded)
@@ -77,8 +68,6 @@ class NetAnsibleTrunkDriverTestCase(base.BaseTestCase):
             netans_driver.is_interface_compatible(
                 trunk_driver.SUPPORTED_INTERFACES[0]))
 
-    @skipIf(sys.version_info.minor == 6,
-            'Temp skip: waiting on unreleased neutron fixes')
     def test_driver_is_loaded(self):
         netans_driver = trunk_driver.NetAnsibleTrunkDriver.create(mock.Mock())
         cfg.CONF.set_override('mechanism_drivers',
@@ -92,8 +81,6 @@ class NetAnsibleTrunkDriverTestCase(base.BaseTestCase):
         cfg.CONF.unregister_opts(ml2_opts, 'ml2')
         self.assertFalse(netans_driver.is_loaded)
 
-    @skipIf(sys.version_info.minor == 6,
-            'Temp skip: waiting on unreleased neutron fixes')
     def test_register(self):
         driver = trunk_driver.NetAnsibleTrunkDriver.create(mock.Mock())
         with mock.patch.object(registry, 'subscribe') as mock_subscribe:
