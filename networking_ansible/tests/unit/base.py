@@ -13,14 +13,16 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+import pbr
+
 from neutron.objects import network
 from neutron.objects import ports
 from neutron.objects import trunk
 from neutron.plugins.ml2 import driver_context
+from neutron_lib.api.definitions import portbindings
 from neutron_lib.api.definitions import provider_net
 from oslo_config import cfg
 from oslotest import base
-import pbr
 from tooz import coordination
 from unittest import mock
 
@@ -106,6 +108,7 @@ class NetworkingAnsibleTestCase(BaseTestCase):
         self.testsegid2 = '73'
         self.testport = 'switchportid'
         self.testid = 'aaaa-bbbb-cccc'
+        self.testid2 = 'cccc-bbbb-aaaa'
 
         # Define mocked network context
         self.mock_net_context = mock.create_autospec(
@@ -119,29 +122,27 @@ class NetworkingAnsibleTestCase(BaseTestCase):
         self.mock_net_context._plugin_context = 'foo'
 
         # mocked network orm object
-        self.mock_net_obj = mock.create_autospec(
+        self.mock_net = mock.create_autospec(
             network.Network).return_value
-        self.mock_netseg_obj = mock.Mock(spec=network.NetworkSegment)
-        self.mock_netseg_obj.segmentation_id = self.testsegid
-        self.mock_netseg_obj.physical_network = self.testphysnet
-        self.mock_netseg_obj.network_type = 'vlan'
-        self.mock_net_obj.segments = [self.mock_netseg_obj]
+        self.mock_netseg = mock.Mock(spec=network.NetworkSegment)
+        self.mock_netseg.segmentation_id = self.testsegid
+        self.mock_netseg.physical_network = self.testphysnet
+        self.mock_netseg.network_type = 'vlan'
+        self.mock_net.segments = [self.mock_netseg]
 
         # alternative segment
-        self.mock_netseg2_obj = mock.Mock(spec=network.NetworkSegment)
-        self.mock_netseg2_obj.segmentation_id = self.testsegid2
-        self.mock_netseg2_obj.physical_network = self.testphysnet
-        self.mock_netseg2_obj.network_type = 'vlan'
+        self.mock_netseg2 = mock.Mock(spec=network.NetworkSegment)
+        self.mock_netseg2.segmentation_id = self.testsegid2
+        self.mock_netseg2.physical_network = self.testphysnet
+        self.mock_netseg2.network_type = 'vlan'
 
         # non-physnet segment
-        self.mock_netseg3_obj = mock.Mock(spec=network.NetworkSegment)
-        self.mock_netseg3_obj.segmentation_id = self.testsegid2
-        self.mock_netseg3_obj.physical_network = 'virtual'
-        self.mock_netseg3_obj.network_type = 'vxlan'
+        self.mock_netseg3 = mock.Mock(spec=network.NetworkSegment)
+        self.mock_netseg3.segmentation_id = self.testsegid2
+        self.mock_netseg3.physical_network = 'virtual'
+        self.mock_netseg3.network_type = 'vxlan'
 
-        # define mocked port context
-        self.mock_port_context = mock.create_autospec(
-            driver_context.PortContext).return_value
+        # Local Link Information dicts
         self.lli_no_mac = {
             'local_link_information': [{
                 'switch_info': self.testhost,
@@ -154,21 +155,52 @@ class NetworkingAnsibleTestCase(BaseTestCase):
                 'port_id': self.testport,
             }]
         }
-        self.mock_port_context.current = {
-            'id': self.testid,
-            'binding:profile': self.lli_no_mac,
-            'binding:vnic_type': 'baremetal',
-            'binding:vif_type': 'other',
-            'mac_address': self.testmac
-        }
-        self.mock_port_context.original = {
-            'id': self.testid,
-            'binding:profile': self.lli_no_mac,
-            'binding:vnic_type': 'baremetal',
-            'binding:vif_type': 'other',
-            'mac_address': self.testmac
-        }
 
+        # Mocked trunk port objects
+        self.mock_port_trunk = mock.Mock(spec=trunk.Trunk)
+        self.mock_subport_1 = mock.Mock(spec=trunk.SubPort)
+        self.mock_subport_1.segmentation_id = self.testsegid2
+        self.mock_port_trunk.sub_ports = [self.mock_subport_1]
+
+        # Mocked port objects
+        self.mock_port = mock.create_autospec(
+            ports.Port).return_value
+        self.mock_port.network_id = self.testid
+        self.mock_port.dict = {
+            'id': self.testid,
+            'mac_address': self.testmac,
+            portbindings.VIF_TYPE: portbindings.VIF_TYPE_OTHER,
+            portbindings.VNIC_TYPE: portbindings.VNIC_BAREMETAL
+        }
+        self.mock_port.__getitem__ = mock.Mock(
+            side_effect=lambda x: self.mock_port.dict[x])
+
+        self.mock_port2 = mock.create_autospec(
+            ports.Port).return_value
+        self.mock_port2.network_id = self.testid2
+        self.mock_port2.dict = {
+            'id': self.testid,
+            'mac_address': self.testmac,
+            portbindings.VIF_TYPE: portbindings.VIF_TYPE_OVS,
+            portbindings.VNIC_TYPE: portbindings.VNIC_NORMAL
+        }
+        self.mock_port2.__getitem__ = mock.Mock(
+            side_effect=lambda x: self.mock_port2.dict[x])
+
+        self.mock_ports = [self.mock_port]
+
+        # Mocked port bindings
+        self.mock_portbind = mock.Mock(spec=ports.PortBinding)
+        self.mock_portbind.profile = self.lli_no_mac
+        self.mock_portbind.vnic_type = 'baremetal'
+        self.mock_portbind.vif_type = 'other'
+        self.mock_port.bindings = [self.mock_portbind]
+
+        # define mocked port context
+        self.mock_port_context = mock.create_autospec(
+            driver_context.PortContext).return_value
+        self.mock_port_context.current = self.mock_port
+        self.mock_port_context.original = self.mock_port2
         self.mock_port_context._plugin_context = mock.MagicMock()
         self.mock_port_context.network = mock.Mock()
         self.mock_port_context.network.current = {
@@ -181,26 +213,3 @@ class NetworkingAnsibleTestCase(BaseTestCase):
         self.mock_port_context.segments_to_bind = [
             self.mock_port_context.network.current
         ]
-
-        self.mock_port_trunk = mock.Mock(spec=trunk.Trunk)
-        self.mock_subport_1 = mock.Mock(spec=trunk.SubPort)
-        self.mock_subport_1.segmentation_id = self.testsegid2
-        self.mock_port_trunk.sub_ports = [self.mock_subport_1]
-
-        self.mock_port_netid = 'aaaa-bbbb-cccc'
-        self.mock_port_obj = mock.create_autospec(
-            ports.Port).return_value
-        self.mock_port_obj.network_id = self.mock_port_netid
-
-        self.mock_port2_netid = 'cccc-bbbb-aaaa'
-        self.mock_port2_obj = mock.create_autospec(
-            ports.Port).return_value
-        self.mock_port2_obj.network_id = self.mock_port2_netid
-
-        self.mock_port_objs = [self.mock_port_obj]
-
-        self.mock_portbind_obj = mock.Mock(spec=ports.PortBinding)
-        self.mock_portbind_obj.profile = self.lli_no_mac
-        self.mock_portbind_obj.vnic_type = 'baremetal'
-        self.mock_portbind_obj.vif_type = 'other'
-        self.mock_port_obj.bindings = [self.mock_portbind_obj]

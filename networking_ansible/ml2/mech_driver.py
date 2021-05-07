@@ -635,11 +635,10 @@ class AnsibleMechanismDriver(ml2api.MechanismDriver):
         if not port:
             return None
         # Validate port and local link info
-        lli = 'local_link_information'
         if isinstance(port, Port):
-            local_link_info = port.bindings[0].profile.get(lli)
+            local_link_info = port.bindings[0].profile.get(c.LLI)
         else:
             if not AnsibleMechanismDriver._is_port_supported(port):
                 return None
-            local_link_info = port['binding:profile'].get(lli)
+            local_link_info = port['binding:profile'].get(c.LLI)
         return local_link_info
