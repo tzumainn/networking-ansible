@@ -159,7 +159,7 @@ class AnsibleMechanismDriver(ml2api.MechanismDriver):
                                           net_id=network_id,
                                           host=host_name,
                                           err=e))
-                            raise ml2_exc.MechanismDriverError(e)
+                            raise exceptions.NetworkingAnsibleMechException(e)
 
     def delete_network_postcommit(self, context):
         """Delete a network.
@@ -226,7 +226,7 @@ class AnsibleMechanismDriver(ml2api.MechanismDriver):
                                       'reason: {err}'.format(net=network['id'],
                                                              host=host_name,
                                                              err=e))
-                            raise ml2_exc.MechanismDriverError(e)
+                            raise exceptions.NetworkingAnsibleMechException(e)
 
     def update_port_postcommit(self, context):
         """Update a port.
@@ -536,7 +536,7 @@ class AnsibleMechanismDriver(ml2api.MechanismDriver):
                           sp=switch_port,
                           sw=switch_name,
                           exc=e))
-            raise ml2_exc.MechanismDriverError(e)
+            raise exceptions.NetworkingAnsibleMechException(e)
 
     def _delete_switch_port(self, switch_name, switch_port):
         # we want to delete the physical port on the switch
@@ -558,7 +558,7 @@ class AnsibleMechanismDriver(ml2api.MechanismDriver):
                           switch_port=switch_port,
                           switch_name=switch_name,
                           exc=e))
-            raise ml2_exc.MechanismDriverError(e)
+            raise exceptions.NetworkingAnsibleMechException(e)
 
     def _is_deleted_port_in_use(self, physnet, mac, db):
         # Go through all ports with this mac addr and find which

@@ -19,6 +19,8 @@ from neutron_lib import exceptions
 
 
 class NetworkingAnsibleMechException(ml2_exc.MechanismDriverError):
+    message = _('%(stdout)s')
+
     def __init__(self, message):
         super(NetworkingAnsibleMechException, self).__init__(message)
 
