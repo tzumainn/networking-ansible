@@ -368,11 +368,10 @@ class AnsibleMechanismDriver(ml2api.MechanismDriver):
         # Run this before getting switch meta, switch_meta_from_local_info
         # runs the same condition and will raise before this is checked
         if not self._is_port_supported(port):
-            LOG.warning('Port {} has device_owner: {} and vnic_type: {}'
+            LOG.warning('Port {} has vnic_type: {}'
                         ' which is not supported by networking-ansible'
                         ', ignoring.'.format(
                             port['id'],
-                            port[c.DEVICE_OWNER],
                             port[portbindings.VNIC_TYPE]))
             return
 
@@ -406,7 +405,7 @@ class AnsibleMechanismDriver(ml2api.MechanismDriver):
             return self._switch_meta_from_link_info(port, network)
         elif self._is_port_normal(port):
             return self._switch_meta_from_port_host_id(port, network)
-        return None, None, None
+        return None, None
 
     def _switch_meta_from_link_info(self, port, network=None):
         network = network or {}
@@ -741,9 +740,7 @@ class AnsibleMechanismDriver(ml2api.MechanismDriver):
 
         """
         vnic_type = port[portbindings.VNIC_TYPE]
-        device_owner = port[c.DEVICE_OWNER]
-        return vnic_type in c.SUPPORTED_TYPES and \
-            device_owner in c.SUPPORTED_OWNERS
+        return vnic_type in c.SUPPORTED_TYPES
 
     @staticmethod
     def _is_port_baremetal(port):
@@ -753,8 +750,8 @@ class AnsibleMechanismDriver(ml2api.MechanismDriver):
         :returns: Whether the port is for baremetal
 
         """
-        device_owner = port[c.DEVICE_OWNER]
-        return device_owner == c.BAREMETAL_NONE
+        vnic_type = port[portbindings.VNIC_TYPE]
+        return vnic_type == portbindings.VNIC_BAREMETAL
 
     @staticmethod
     def _is_port_normal(port):

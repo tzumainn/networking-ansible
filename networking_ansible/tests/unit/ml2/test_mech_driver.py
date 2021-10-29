@@ -108,9 +108,24 @@ class TestIsPortSupported(base.NetworkingAnsibleTestCase):
             self.mech._is_port_supported(self.mock_port_dt))
 
     def test_is_port_supported_invalid(self):
-        self.mock_port_bm.dict[c.DEVICE_OWNER] = 'invalid'
+        self.mock_port_bm.dict[portbindings.VNIC_TYPE] = 'invalid'
         self.assertFalse(
             self.mech._is_port_supported(self.mock_port_bm))
+
+
+class TestIsPortBaremetal(base.NetworkingAnsibleTestCase):
+    def test_is_port_baremetal(self):
+        self.assertTrue(
+            self.mech._is_port_baremetal(self.mock_port_bm))
+
+    def test_is_port_baremetal_device_owner(self):
+        self.mock_port_bm.dict[c.DEVICE_OWNER] = 'foo'
+        self.assertTrue(
+            self.mech._is_port_baremetal(self.mock_port_bm))
+
+    def test_is_port_baremetal_vm(self):
+        self.assertFalse(
+            self.mech._is_port_baremetal(self.mock_port_vm))
 
 
 @mock.patch('networking_ansible.ml2.mech_driver.'
