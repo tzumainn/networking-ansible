@@ -246,6 +246,20 @@ class NetworkingAnsibleTestCase(BaseTestCase):
 
         self.mock_ports = [self.mock_port_bm]
 
+        self.mock_port_bm_from_neutron = mock.create_autospec(
+            ports.Port).return_value
+        self.mock_port_bm_from_neutron.network_id = self.testid
+        self.mock_port_bm_from_neutron.dict = {
+            'id': self.testid,
+            'network_id': uuid.uuid4(),
+            'mac_address': self.testmac,
+            c.DEVICE_OWNER: c.BAREMETAL_NONE,
+            }
+        self.mock_port_bm_from_neutron.__getitem__ = mock.Mock(
+            side_effect=lambda x: self.mock_port_bm_from_neutron.dict[x])
+        self.mock_port_bm_from_neutron.__setitem__ = mock.Mock(
+            side_effect=lambda x, y: self.mock_port_bm_from_neutron.dict.update({x: y}))
+
         # Mocked port bindings
         self.mock_portbind_bm = mock.Mock(spec=ports.PortBinding)
         self.mock_portbind_bm.profile = self.profile_lli_no_mac
@@ -256,6 +270,7 @@ class NetworkingAnsibleTestCase(BaseTestCase):
             side_effect=lambda x: self.mock_portbind_bm.dict[x])
 
         self.mock_port_bm.bindings = [self.mock_portbind_bm]
+        self.mock_port_bm_from_neutron.bindings = [self.mock_portbind_bm]
 
         self.mock_portbind_dt = mock.Mock(spec=ports.PortBinding)
         self.mock_portbind_dt.profile = self.profile_lli_no_mac

@@ -851,9 +851,9 @@ class TestEnsureSubports(base.NetworkingAnsibleTestCase):
     def test_ensure_subports_valid(self,
                                    mock_set_state,
                                    mock_port_get_object):
-        mock_port_get_object.return_value = self.mock_port_bm
+        mock_port_get_object.return_value = self.mock_port_bm_from_neutron
         self.mech.ensure_subports(self.testid, 'testdb')
-        mock_set_state.assert_called_once_with(self.mock_port_bm,
+        mock_set_state.assert_called_once_with(self.mock_port_bm_from_neutron,
                                                'testdb',
                                                self.testhost,
                                                self.testport)
@@ -863,7 +863,7 @@ class TestEnsureSubports(base.NetworkingAnsibleTestCase):
     def test_ensure_subports_invalid(self,
                                      mock_set_state,
                                      mock_port_get_object):
-        mock_port_get_object.side_effect = [self.mock_port_bm, None]
+        mock_port_get_object.side_effect = [self.mock_port_bm_from_neutron, None]
         self.mech.ensure_subports(self.testid, 'testdb')
         mock_set_state.assert_not_called()
 

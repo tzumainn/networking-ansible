@@ -455,6 +455,13 @@ class AnsibleMechanismDriver(ml2api.MechanismDriver):
                       'that has been deleted')
             return
 
+        # add port binding information
+        if len(port.bindings) > 0:
+            binding = port.bindings[0]
+            port[portbindings.VNIC_TYPE] = binding.vnic_type
+            port[portbindings.HOST_ID] = binding.host
+            port[portbindings.VIF_TYPE] = binding.vif_type
+
         # get switch info
         mappings, segmentation_id = self.get_switch_meta(port)
 
