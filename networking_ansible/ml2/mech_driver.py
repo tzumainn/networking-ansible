@@ -86,6 +86,14 @@ class AnsibleMechanismDriver(ml2api.MechanismDriver):
 
         self.trunk_driver = trunk_driver.NetAnsibleTrunkDriver.create(self)
 
+    @property
+    def connectivity(self):
+        return portbindings.CONNECTIVITY_L2
+
+    @property
+    def vif_details(self):
+        return {portbindings.VIF_DETAILS_CONNECTIVITY: self.connectivity}
+
     def create_network_postcommit(self, context):
         """Create a network.
 
